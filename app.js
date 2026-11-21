@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=7";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine, drawLine, drawZones } from "./lines.js?v=7";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=7";
+import { createTracker } from "./tracker.js?v=8";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=8";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=8";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -15,7 +15,6 @@ const message = document.getElementById("message");
 const statusEl = document.getElementById("status");
 const notice = document.getElementById("notice");
 const dotsBtn = document.getElementById("dotsBtn");
-const viewBtn = document.getElementById("viewBtn");
 
 // Mit ?cpu=1 in der Adresse lässt sich die Grafikkarte zum Vergleich abschalten.
 const params = new URLSearchParams(location.search);
@@ -24,14 +23,14 @@ const forceCpu = params.has("cpu");
 const smoothing = params.get("glatt") !== "0";
 // Mit ?sync=0 wird das Kamerabild wie früher direkt gezeigt (Linien hinken dann leicht nach).
 const syncFrames = params.get("sync") !== "0";
+// Mit ?verdeckt=0 werden auch Linien auf der abgewandten Kopfseite gezeichnet.
+const hideFarSide = params.get("verdeckt") !== "0";
 
 // Der Style wird von Live-Spiegel und Editor gemeinsam benutzt.
 const cloneStyle = (s) => JSON.parse(JSON.stringify(s));
 const style = cloneStyle(DEFAULT_STYLE);
 const smoother = new StyleSmoother({ minCutoff: 2, beta: 0.05 });
 let showDots = false;
-// Ansicht im Live-Spiegel: "zone" (roter Streifen ausserhalb der Form) oder "linie".
-let viewMode = "zone";
 
 let stream = null;
 let tracker = null;
@@ -95,24 +94,21 @@ function drawLandmarks(landmarks) {
   }
 }
 
-// Zeichnet alle eingeschalteten Formen des Styles an ihre Stelle im Gesicht.
+// Zeichnet alle eingeschalteten Formen des Styles als feine Linien auf die Haut.
+// Stücke auf der abgewandten Seite des Kopfs werden weggelassen.
 function drawStyle(landmarks, timeMs) {
   const w = overlay.width;
   const h = overlay.height;
-  const hair = Math.max(1.5, Math.min(w, h) / 420); // Haarlinie
-  // Streifenbreite im Verhältnis zur Gesichtsbreite (rund 6 %, etwa 8 mm).
-  const faceWidth = Math.hypot((landmarks[454].x - landmarks[234].x) * w, (landmarks[454].y - landmarks[234].y) * h);
-  const band = faceWidth * 0.06;
+  const width = Math.max(1.5, Math.min(w, h) / 420);
+  const center = headCenter(landmarks, w, h);
 
-  const zones = [];
   for (const line of style.lines) {
     if (line.enabled === false) continue;
-    let pts = projectLine(line, landmarks, w, h);
-    if (smoothing) pts = smoother.smooth(line.id, pts, timeMs);
-    if (viewMode === "zone" && line.closed) zones.push(pts);
-    else drawLine(ctx, pts, { width: hair, closed: line.closed });
+    const raw = projectLine3(line, landmarks, w, h);
+    const alphas = hideFarSide ? raw.map((p) => facing(p, center)) : null;
+    const pts = smoothing ? smoother.smooth(line.id, raw, timeMs) : raw;
+    drawLine(ctx, pts, { width, closed: line.closed, halo: false, alphas });
   }
-  drawZones(ctx, zones, { band, width: hair });
 }
 
 // ---- Bildrate messen -------------------------------------------------------
@@ -318,10 +314,6 @@ function stopCamera() {
 
 startBtn.addEventListener("click", startCamera);
 stopBtn.addEventListener("click", stopCamera);
-viewBtn.addEventListener("click", () => {
-  viewMode = viewMode === "zone" ? "linie" : "zone";
-  viewBtn.textContent = viewMode === "zone" ? "Ansicht: Zone" : "Ansicht: Linie";
-});
 dotsBtn.addEventListener("click", () => {
   showDots = !showDots;
   dotsBtn.textContent = showDots ? "Punkte aus" : "Punkte ein";
@@ -340,6 +332,7 @@ const addBtn = document.getElementById("addBtn");
 const deleteBtn = document.getElementById("deleteBtn");
 const mirrorBtn = document.getElementById("mirrorBtn");
 const resetBtn = document.getElementById("resetBtn");
+const analyzeBtn = document.getElementById("analyzeBtn");
 const photoInput = document.getElementById("photoInput");
 
 const groupEnabled = (key) => style.lines.some((l) => l.group === key && l.enabled !== false);
@@ -351,6 +344,7 @@ function updateEditorButtons() {
   deleteBtn.disabled = !editor.canDelete();
   mirrorBtn.disabled = !ready;
   resetBtn.disabled = !ready;
+  analyzeBtn.disabled = !ready;
   editorHint.hidden = !ready;
 
   const count = editor.photoCount();
@@ -382,15 +376,18 @@ function updateEditorButtons() {
   }
 }
 
+const DEFAULT_HINT = editorHint.textContent;
+const setEditorMessage = (text) => {
+  editorMessage.textContent = text;
+  editorMessage.hidden = !text;
+};
+
 const editor = createEditor({
   canvas: document.getElementById("editorCanvas"),
   stage: document.getElementById("editorStage"),
   style,
   getTracker,
-  onMessage(text) {
-    editorMessage.textContent = text;
-    editorMessage.hidden = !text;
-  },
+  onMessage: setEditorMessage,
   onChange: () => updateEditorButtons(),
 });
 
@@ -410,7 +407,36 @@ photoInput.addEventListener("change", async () => {
   photoInput.value = ""; // dasselbe Foto soll sich erneut wählen lassen
   if (!file) return;
   await editor.addPhoto(file);
+  editorHint.textContent = DEFAULT_HINT;
   updateEditorButtons();
+});
+
+// Bart-Analyse: schlägt aus allen geladenen Fotos die Umrisse von Schnauzer und Goatee vor.
+analyzeBtn.addEventListener("click", async () => {
+  analyzeBtn.disabled = true;
+  setEditorMessage("Fotos werden analysiert …");
+  await new Promise((resolve) => setTimeout(resolve, 60)); // Meldung zuerst anzeigen
+  let result = null;
+  try {
+    result = editor.analyze();
+  } catch (err) {
+    console.error(err);
+  }
+  setEditorMessage("");
+  updateEditorButtons();
+
+  const names = { schnauzer: "Schnauzer", goatee: "Goatee" };
+  if (!result) {
+    editorHint.textContent = "Die Analyse ist fehlgeschlagen. Die Formen bleiben unverändert.";
+  } else if (!result.found.length) {
+    editorHint.textContent = "Kein klarer Bart erkannt, die Formen bleiben unverändert. Am besten klappt es mit gleichmässigem Licht und deutlichem Kontrast.";
+  } else {
+    const list = result.found.map((key) => names[key]).join(" und ");
+    const missing = ["schnauzer", "goatee"].filter((key) => !result.found.includes(key)).map((key) => names[key]);
+    editorHint.textContent =
+      `Vorschlag für ${list} gesetzt (Foto ${result.ref + 1}). Prüfe die Kanten und ziehe nach.` +
+      (missing.length ? ` ${missing.join(" und ")} nicht erkannt.` : "");
+  }
 });
 
 addBtn.addEventListener("click", () => editor.addAfterSelected());
@@ -418,6 +444,7 @@ deleteBtn.addEventListener("click", () => editor.deleteSelected());
 mirrorBtn.addEventListener("click", () => editor.mirror());
 resetBtn.addEventListener("click", () => {
   style.lines = cloneStyle(DEFAULT_STYLE).lines;
+  editorHint.textContent = DEFAULT_HINT;
   editor.refresh();
   updateEditorButtons();
 });

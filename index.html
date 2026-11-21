@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <main id="app">
@@ -36,7 +36,6 @@
 
     <footer class="bottombar" id="controls" hidden>
       <button id="stopBtn" class="ghost" type="button">‹ Menü</button>
-      <button id="viewBtn" class="ghost" type="button">Ansicht: Zone</button>
       <button id="dotsBtn" class="ghost" type="button">Punkte ein</button>
     </footer>
     <!-- Linien-Editor: Linien auf einem Foto bearbeiten -->
@@ -64,6 +63,7 @@
           <span id="photoLabel">Foto wählen</span>
           <input id="photoInput" class="visually-hidden" type="file" accept="image/*">
         </label>
+        <button id="analyzeBtn" class="ghost small accent" type="button" disabled>Analysieren</button>
         <button id="addBtn" class="ghost small" type="button" disabled>Punkt +</button>
         <button id="deleteBtn" class="ghost small" type="button" disabled>Punkt löschen</button>
         <button id="mirrorBtn" class="ghost small" type="button" disabled>Spiegeln</button>
@@ -72,6 +72,6 @@
     </section>
   </main>
 
-  <script type="module" src="app.js?v=7"></script>
+  <script type="module" src="app.js?v=8"></script>
 </body>
 </html>

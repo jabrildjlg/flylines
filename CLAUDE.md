@@ -110,22 +110,24 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
   - Die Erkennung muss direkt vom `<video>` lesen. Von der 2D-Zeichenfläche gelesen fiel die Bildrate in Safari auf etwa 15 FPS.
   - 33 ms pro Bild sind knapp am Takt der Kamera (30 Bilder pro Sekunde). Falls spätere Schritte die Bildrate unter 20 drücken: zuerst die Kopie des Kamerabilds verkleinern.
 - Schritt 4 bestanden (iPhone-Test am 21.11.2026): Punkte ziehen, Lupe, Hinzufügen, Löschen und Spiegeln funktionieren. Rückmeldung: Antippen der Linie fügte bei dicht liegenden Punkten keinen Punkt ein; aus dem Kameramodus fehlte ein klarer Weg zurück.
-- Schritt 5 gebaut, erweitert um die Wünsche oben. Wartet auf den Test am iPhone. Inhalt:
-  - `DEFAULT_STYLE` in `lines.js`: geschlossene Startformen für Schnauzer, Goatee und beide Augenbrauen. Die Landmark-Nummern stammen aus dem Gedächtnis und sind erst durch den Test des Nutzers bestätigt, wenn er die Formen an der richtigen Stelle sieht.
+- Schritt 5, erste Runde am iPhone (21.11.2026): Startformen, drei Fotos und Live-Anzeige funktionieren. Rückmeldungen des Nutzers, alle umgesetzt und wartend auf den zweiten Test:
+  - Der rote Streifen der Ansicht «Zone» störte. Jetzt gibt es nur noch die feine Linie ohne dunklen Rand (`drawLine` mit `halo: false`), keinen Ansichts-Knopf mehr.
+  - Die Bartkonturen sollen nicht von Hand gesetzt werden müssen. Neu: Knopf «Analysieren» im Editor (`analyze.js`). Verfahren ohne KI: Suchfelder über und unter dem Mund aus Landmarks, jede Stelle über das Gesichtsnetz in allen Fotos nachschlagen, Helligkeit mit der Wangenhaut des jeweiligen Fotos vergleichen, schräg gesehene Stellen schwächer gewichten, Schwelle nach Otsu, grösste zusammenhängende Fläche, Umriss auf höchstens 14 Punkte vereinfachen. Bezug ist das frontalste Foto. Ohne klaren Kontrast gibt es keinen Vorschlag und die Formen bleiben. Bisher nur mit künstlichen Testbildern geprüft, nicht mit echten Fotos.
+  - Linien der abgewandten Kopfseite schienen durch den Kopf durch. Neu: Sichtbarkeit pro Punkt (`facing` in `lines.js`): Richtung von der Kopfmitte (Mitte zwischen Landmark 234 und 454) zum Punkt; zeigt sie von der Kamera weg, wird das Linienstück weggelassen, mit weichem Übergang. Hängt von den z-Werten von MediaPipe ab; falls sichtbare Stücke fehlen, die Schwellen in `facing` anpassen.
+- Inhalt von Schritt 5:
+  - `DEFAULT_STYLE` in `lines.js`: geschlossene Startformen für Schnauzer, Goatee und beide Augenbrauen.
   - Linien-Modell erweitert: `closed`, `enabled`, `group` (schnauzer, goatee, brauen), `partner` (linke und rechte Braue).
-  - Ansicht «Zone» im Live-Spiegel (Standard): Die Form bleibt frei, direkt ausserhalb liegt ein roter Streifen (rund 6 % der Gesichtsbreite), die Schnittkante ist eine Haarlinie. Grund: Beim Nachschneiden muss der Bart in der Form und die Kante selbst unverdeckt sichtbar sein. Umschaltbar auf «Linie».
   - Editor mit bis zu drei Fotos (Reiter «Foto 1–3»). Alle Fotos zeigen dieselben Formen, weil die Punkte im Gesichtsnetz verankert sind. Schalter für Schnauzer, Goatee, Brauen.
   - Antippen: näher als 11 Bildschirm-Pixel an einem Punkt greift den Punkt, sonst fügt ein Tipp auf die Linie einen Punkt ein.
   - Live-Spiegel: Knopf «‹ Menü» statt «Kamera stoppen».
-  - Nicht gebaut: automatische Erkennung der Bartkanten im Foto. Der Nutzer zieht die Startformen von Hand zurecht.
 - MediaPipe: `@mediapipe/tasks-vision` Version 1.2.3, in `tracker.js` fest eingetragen. Bibliothek, WASM und Modell werden vorerst aus dem Netz geladen (jsDelivr, Modell von Hugging Face bzw. Google Storage). Liegt das Modell unter `models/face_landmarker.task`, wird es automatisch von dort genommen. Für Schritt 12 (offline) müssen Bibliothek, WASM und Modell ins Repository.
-- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `drawZones` zeichnet die Ansicht «Zone».
+- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve.
 - Editor (`editor.js`, `geometry.js`):
   - Foto wird nach der Gesichtserkennung auf das Gesicht zugeschnitten (Rand für Hals, Ohren, Haaransatz).
   - Anker eines Punkts: Delaunay-Triangulation der 468 Netzpunkte des Fotos (Iris-Punkte 468–477 ausgeschlossen, sie bewegen sich mit dem Blick), dann baryzentrische Gewichte. Ausserhalb des Netzes: nächstes Dreieck, Gewichte dürfen negativ sein.
   - Bedienung: Punkt ziehen (mit Lupe), Linie antippen oder «Punkt +» für neuen Punkt, «Punkt löschen», «Spiegeln», «Zurücksetzen» (stellt die Startformen wieder her).
   - Spiegeln rechnet in 3D an der Gesichtsmitte (Ebene aus den Paaren 33/263, 133/362, 61/291, 234/454 und Mittellinien-Punkten), nicht über eine Tabelle von Landmark-Paaren. Die im Bild linke Hälfte ist die Quelle. Formen über der Mitte werden symmetrisch neu aufgebaut; Formen ganz auf der linken Seite überschreiben ihre Partnerform (`partner`).
   - Editor und Live-Spiegel benutzen dasselbe Style-Objekt im Speicher; gespeichert wird noch nichts (Schritt 7).
-- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
-- Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Bildschirme), `tracker.js` (MediaPipe), `lines.js` (Linien), `editor.js` (Editor), `geometry.js` (Dreiecksnetz, Spiegelung). Bei jeder Änderung die Versionsnummer `?v=` in `index.html` und in den `import`-Zeilen erhöhen, sonst lädt Safari alte Dateien.
+- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds, `?verdeckt=0` das Ausblenden der abgewandten Seite. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
+- Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Bildschirme), `tracker.js` (MediaPipe), `lines.js` (Linien), `editor.js` (Editor), `geometry.js` (Dreiecksnetz, Spiegelung), `analyze.js` (Bart-Analyse). Bei jeder Änderung die Versionsnummer `?v=` in `index.html` und in den `import`-Zeilen erhöhen, sonst lädt Safari alte Dateien.
 - Nächster Schritt nach bestandenem Test: 6 (Gesichtsscan und Fixieren).

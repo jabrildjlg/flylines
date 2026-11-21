@@ -176,6 +176,7 @@ button {
 
 .ghost.small { padding: 10px 14px; font-size: 14px; }
 .ghost:disabled { opacity: 0.4; }
+.ghost.accent { background: var(--accent); color: var(--accent-text); font-weight: 700; }
 
 /* ---- Linien-Editor ---- */
 

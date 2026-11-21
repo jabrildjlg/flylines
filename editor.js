@@ -5,8 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=7";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=7";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=8";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=8";
+import { analyzeBeard } from "./analyze.js?v=8";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
@@ -483,6 +484,45 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     onChange();
   }
 
+  // Bart-Analyse über alle geladenen Fotos. Setzt die gefundenen Umrisse als neue
+  // Formen für Schnauzer und Goatee. Bezug ist das Foto, das am ehesten von vorn zeigt.
+  function analyze() {
+    if (!hasPhoto()) return null;
+    const data = photos.map((p) => ({
+      width: p.image.width,
+      height: p.image.height,
+      data: p.image.getContext("2d").getImageData(0, 0, p.image.width, p.image.height).data,
+      pixels: p.pixels,
+      tris: p.tris,
+    }));
+    let ref = 0;
+    let best = Infinity;
+    photos.forEach((p, i) => {
+      const turned = Math.abs(p.frame.n.z); // 0 = genau von vorn
+      if (turned < best) {
+        best = turned;
+        ref = i;
+      }
+    });
+
+    const result = analyzeBeard(data, ref);
+    show(ref);
+    const found = [];
+    for (const key of ["schnauzer", "goatee"]) {
+      const outline = result[key];
+      const line = style.lines.find((l) => l.id === key);
+      if (!outline || !line) continue;
+      const points = outline.map((p) => anchorAt(p.x, p.y)).filter(Boolean);
+      if (points.length < 3) continue;
+      line.points = points;
+      line.enabled = true;
+      found.push(key);
+    }
+    render();
+    onChange();
+    return { found, ref };
+  }
+
   function refresh() {
     selected = null;
     fit();
@@ -504,6 +544,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     addAfterSelected,
     hasSelection: () => Boolean(selected),
     mirror,
+    analyze,
     refresh,
     hasPhoto,
   };

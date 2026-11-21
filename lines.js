@@ -160,95 +160,122 @@ export class StyleSmoother {
   }
 }
 
+// ---- Sichtbarkeit ------------------------------------------------------------
+// Die Linien sollen auf der Haut liegen: Was auf der abgewandten Seite des Kopfs
+// liegt, wird nicht gezeichnet. Dazu wird für jeden Punkt geschätzt, wohin die Haut
+// dort zeigt (vom Kopfinneren nach aussen). Zeigt sie von der Kamera weg, ist der
+// Punkt verdeckt.
+
+/** Wie projectLine, aber mit Tiefe z (in Pixeln, kleiner = näher an der Kamera). */
+export function projectLine3(line, landmarks, width, height) {
+  return line.points.map((point) => {
+    const [a, b, c] = point.tri;
+    const [wa, wb, wc] = point.w;
+    const A = landmarks[a];
+    const B = landmarks[b];
+    const C = landmarks[c];
+    return {
+      x: (wa * A.x + wb * B.x + wc * C.x) * width,
+      y: (wa * A.y + wb * B.y + wc * C.y) * height,
+      z: (wa * A.z + wb * B.z + wc * C.z) * width,
+    };
+  });
+}
+
+/** Ungefähre Kopfmitte: der Punkt zwischen den beiden Gesichtsrändern vor den Ohren. */
+export function headCenter(landmarks, width, height) {
+  const l = landmarks[234];
+  const r = landmarks[454];
+  return {
+    x: ((l.x + r.x) / 2) * width,
+    y: ((l.y + r.y) / 2) * height,
+    z: ((l.z + r.z) / 2) * width,
+  };
+}
+
+/**
+ * Sichtbarkeit eines Punkts: 1 = der Kamera zugewandt, 0 = abgewandt,
+ * dazwischen ein kurzer weicher Übergang, damit nichts flackert.
+ */
+export function facing(p, center) {
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  const dz = p.z - center.z;
+  const towardCamera = -dz / (Math.hypot(dx, dy, dz) || 1);
+  return Math.max(0, Math.min(1, (towardCamera - 0.1) / 0.15));
+}
+
 // ---- Zeichnen ----------------------------------------------------------------
 
-/** Legt eine weiche Kurve (Catmull-Rom) durch die Punkte, offen oder geschlossen. */
-function tracePath(ctx, pts, closed, begin = true) {
+// Kurvenstück (Catmull-Rom als Bézier) vom Punkt i zum nächsten.
+function segment(pts, closed, i) {
   const n = pts.length;
-  const get = (i) => (closed ? pts[((i % n) + n) % n] : pts[Math.max(0, Math.min(n - 1, i))]);
-  if (begin) ctx.beginPath();
+  const get = (k) => (closed ? pts[((k % n) + n) % n] : pts[Math.max(0, Math.min(n - 1, k))]);
+  const p0 = get(i - 1);
+  const p1 = get(i);
+  const p2 = get(i + 1);
+  const p3 = get(i + 2);
+  return [
+    p1.x + (p2.x - p0.x) / 6,
+    p1.y + (p2.y - p0.y) / 6,
+    p2.x - (p3.x - p1.x) / 6,
+    p2.y - (p3.y - p1.y) / 6,
+    p2.x,
+    p2.y,
+  ];
+}
+
+/** Legt eine weiche Kurve durch die Punkte, offen oder geschlossen. */
+function tracePath(ctx, pts, closed) {
+  ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);
-  const segments = closed ? n : n - 1;
-  for (let i = 0; i < segments; i++) {
-    const p0 = get(i - 1);
-    const p1 = get(i);
-    const p2 = get(i + 1);
-    const p3 = get(i + 2);
-    ctx.bezierCurveTo(
-      p1.x + (p2.x - p0.x) / 6,
-      p1.y + (p2.y - p0.y) / 6,
-      p2.x - (p3.x - p1.x) / 6,
-      p2.y - (p3.y - p1.y) / 6,
-      p2.x,
-      p2.y
-    );
-  }
+  const segments = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < segments; i++) ctx.bezierCurveTo(...segment(pts, closed, i));
   if (closed) ctx.closePath();
 }
 
 /**
- * Zeichnet eine Linie oder Form: dünne farbige Linie mit dunklem Rand, damit sie
- * auf Haut und Bart sichtbar bleibt. Mit fill wird die Form halb durchsichtig gefüllt.
+ * Zeichnet eine Linie oder geschlossene Form als feine Linie.
+ * @param {object} o
+ * @param {number} o.width      Linienbreite in Pixeln
+ * @param {boolean} o.closed    geschlossene Form
+ * @param {boolean} o.halo      dunkler Rand für Kontrast auf Fotos
+ * @param {number[]} [o.alphas] Sichtbarkeit pro Punkt (0–1); verdeckte Stücke werden weggelassen
  */
-export function drawLine(ctx, pts, { color = "#35e0a1", width = 2, closed = false, fill = false } = {}) {
+export function drawLine(ctx, pts, { color = "#35e0a1", width = 2, closed = false, halo = true, alphas = null } = {}) {
   if (pts.length < 2) return;
   const isClosed = closed && pts.length >= 3;
-  ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  tracePath(ctx, pts, isClosed);
-  if (fill && isClosed) {
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = color;
-    ctx.fill();
+  if (alphas) {
+    // Stück für Stück, damit verdeckte Teile fehlen und der Rand weich ausläuft.
+    const n = pts.length;
+    const segments = isClosed ? n : n - 1;
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    for (let i = 0; i < segments; i++) {
+      const a = Math.min(alphas[i], alphas[(i + 1) % n]);
+      if (a < 0.03) continue;
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.bezierCurveTo(...segment(pts, isClosed, i));
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
+    return;
   }
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.lineWidth = width * 2.2;
-  ctx.stroke();
 
+  ctx.lineCap = "round";
+  if (halo) {
+    tracePath(ctx, pts, isClosed);
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.lineWidth = width * 2.2;
+    ctx.stroke();
+  }
   tracePath(ctx, pts, isClosed);
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.stroke();
-}
-
-/**
- * Ansicht «Zone»: Die Form selbst bleibt frei, damit der Bart darin unverdeckt
- * sichtbar ist. Direkt ausserhalb liegt ein roter Streifen: Was dort wächst, kommt weg.
- * Die Schnittkante ist die Innenkante des Streifens, markiert mit einer Haarlinie.
- *
- * @param {{x:number,y:number}[][]} shapes  geschlossene Formen in Pixeln
- * @param {object} o
- * @param {number} o.band   Breite des Streifens in Pixeln
- * @param {number} o.width  Breite der Haarlinie in Pixeln
- */
-export function drawZones(ctx, shapes, { band = 20, width = 1.5, color = "#35e0a1" } = {}) {
-  const closed = shapes.filter((pts) => pts.length >= 3);
-  if (!closed.length) return;
-  const w = ctx.canvas.width;
-  const h = ctx.canvas.height;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  // Nur ausserhalb aller Formen zeichnen.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, w, h);
-  for (const pts of closed) tracePath(ctx, pts, true, false);
-  ctx.clip("evenodd");
-  ctx.strokeStyle = "rgba(255, 64, 64, 0.34)";
-  ctx.lineWidth = band * 2;
-  for (const pts of closed) {
-    tracePath(ctx, pts, true);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  for (const pts of closed) {
-    tracePath(ctx, pts, true);
-    ctx.stroke();
-  }
 }
