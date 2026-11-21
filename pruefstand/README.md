@@ -40,6 +40,8 @@ Alle Abstände in Prozent der Gesichtsbreite (Ohr zu Ohr, rund 14 cm; 1 % ist al
 - `zuViel`: mittlerer Abstand der gefundenen Linie zur Soll-Kontur. Hoch, wenn die Analyse Dinge findet, die kein Bart sind (Schatten, Ausläufer).
 - `zuWenig`: mittlerer Abstand der Soll-Kontur zur gefundenen Linie. Hoch, wenn Bart fehlt.
 - `p95`: 95 % der Punkte liegen näher. Zeigt Ausreisser.
+- `deckung1`, `deckung2`, …: wie viel Prozent der Fläche jeder Soll-Form (in der Reihenfolge von `soll.json`) das Ergebnis deckt. Nur für Fotos von vorn.
+- `falsch`: Ergebnisfläche ausserhalb jeder Soll-Form, in Prozent der gesamten Soll-Fläche. Nur für Fotos von vorn.
 - `gedreht`: 0 = von vorn, 1 = reines Profil.
 
 Vom Ergebnis zählt auf jedem Foto nur, was der Kamera zugewandt ist.

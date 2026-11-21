@@ -20,7 +20,7 @@
 //
 // Das Ergebnis ist ein Vorschlag, den der Nutzer prüft und nachzieht.
 
-import { delaunay, locate, sagittalFrame, signedDistance } from "./geometry.js?v=12";
+import { delaunay, locate, sagittalFrame, signedDistance } from "./geometry.js?v=13";
 
 const RING = [57, 186, 92, 165, 167, 164, 393, 391, 322, 410, 287]; // Ring über der Oberlippe
 const LIP_UP = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291]; // Oberkante Oberlippe
@@ -39,6 +39,11 @@ const CHIN_SPAN = 5; // so viele Randpunkte links und rechts vom Kinn werden mit
 // nicht mehr: Bei fast reinem Profil sitzt das Gesichtsnetz von MediaPipe am Kinn und am
 // Kiefer mehrere Prozent der Gesichtsbreite daneben (im Prüfstand gemessen).
 const THRESHOLD_MIX = 0.42; // Schwelle zwischen Haut (0) und Bart (1)
+const ZONES = true; // eigene Schwelle pro Zone (über dem Mund, unter dem Mund, Wangen)
+const ZONE_WIDTH = 1.5; // Mund-Zonen reichen so weit über die Mundwinkel hinaus (1 = bis zum Mundwinkel)
+const ZONE_OWN = [true, true, false]; // welche Zone eine eigene Schwelle bekommt: über dem Mund, unter dem Mund, Wangen
+const LIP_SCALE_X = 1.32; // Lippen-Ausschluss in der Breite (1.08 = wie in der Höhe)
+const ZONE_FLOOR = 0; // eine Zonenschwelle fällt nie unter diesen Anteil der gemeinsamen Schwelle
 const TURN_FULL = 0.6;
 const TURN_NONE = 0.9;
 
@@ -138,7 +143,13 @@ export function regions(px) {
     const k = SIDE_SCALE + (CHIN_SCALE - SIDE_SCALE) * Math.max(0, 1 - Math.abs(i - chin) / CHIN_SPAN);
     return { x: mid.x + (p.x - mid.x) * k, y: mid.y + (p.y - mid.y) * k };
   });
-  const lips = scalePolygon(LIPS.map((i) => px[i]), 1.08);
+  // Lippen: in der Breite grosszügiger, damit die dunklen Falten an den Mundwinkeln
+  // nicht als Bart gelten.
+  const lipCentre = centroid(LIPS.map((i) => px[i]));
+  const lips = LIPS.map((i) => ({
+    x: lipCentre.x + (px[i].x - lipCentre.x) * LIP_SCALE_X,
+    y: lipCentre.y + (px[i].y - lipCentre.y) * 1.08,
+  }));
 
   // Nase: alles oberhalb einer Linie knapp unter der Nase, zwischen den Nasenflügeln.
   const under = [];
@@ -566,8 +577,44 @@ export function analyzeBeard(photos, current = null) {
   // (z. B. die Spitzen eines Schnauzers) dabei, ohne dass Schatten mitkommen.
   const threshold = Math.max(0.15, o.low + THRESHOLD_MIX * (o.high - o.low));
 
+  // Zonen: über dem Mund (0), unter dem Mund (1), Wangen (2). Mit ZONES bekommt jede
+  // Zone ihre eigene Schwelle, damit ein dunkler Kinnbart nicht bestimmt, was am
+  // helleren Schnauzer noch als Bart gilt.
+  const mouthX = (px0[61].x + px0[291].x) / 2;
+  const mouthY = (px0[61].y + px0[291].y) / 2;
+  const mouthHalf = (Math.abs(px0[291].x - px0[61].x) / 2) * ZONE_WIDTH;
+  const zoneAt = (i) => {
+    const gx = i % gw;
+    const gy = (i - gx) / gw;
+    if (Math.abs(refX(gx) - mouthX) > mouthHalf) return 2;
+    return refY(gy) < mouthY ? 0 : 1;
+  };
+  const zoneValues = [[], [], []];
+  const zone = new Uint8Array(gw * gh);
+  for (let i = 0; i < gw * gh; i++) {
+    if (!allowed[i]) continue;
+    zone[i] = zoneAt(i);
+    zoneValues[zone[i]].push(blurred[i]);
+  }
+  const zoneInfo = zoneValues.map((list, k) => {
+    if (list.length < 50) return { threshold: threshold, low: 0, high: 0, own: false };
+    const z = otsu(list);
+    // Ohne klaren Unterschied in der Zone gilt die gemeinsame Schwelle weiter.
+    if (z.high - z.low < 0.12 || !ZONE_OWN[k]) return { threshold, low: z.low, high: z.high, own: false };
+    // Nie strenger als die gemeinsame Schwelle, und nie unter ZONE_FLOOR davon:
+    // Eine Zone ohne Bart soll aus Hautflecken und Schatten keinen Bart machen.
+    const own = Math.max(0.15, z.low + THRESHOLD_MIX * (z.high - z.low));
+    return { threshold: Math.min(threshold, Math.max(own, threshold * ZONE_FLOOR)), low: z.low, high: z.high, own: true };
+  });
+  const thresholdAt = (i) => (ZONES ? zoneInfo[zone[i]].threshold : threshold);
+  const round = (v) => Math.round(v * 100) / 100;
+  const thresholds = {
+    gemeinsam: round(threshold),
+    zonen: zoneInfo.map((z) => ({ schwelle: round(z.threshold), haut: round(z.low), bart: round(z.high) })),
+  };
+
   let mask = new Uint8Array(gw * gh);
-  for (let i = 0; i < gw * gh; i++) if (allowed[i] && blurred[i] >= threshold) mask[i] = 1;
+  for (let i = 0; i < gw * gh; i++) if (allowed[i] && blurred[i] >= thresholdAt(i)) mask[i] = 1;
   mask = close5(open3(mask, gw, gh), gw, gh);
   for (let i = 0; i < gw * gh; i++) if (!allowed[i]) mask[i] = 0;
 
@@ -605,7 +652,7 @@ export function analyzeBeard(photos, current = null) {
         return best || anchor;
       })
     );
-    return { shapes, moved, used };
+    return { shapes, moved, used, thresholds };
   }
 
   // Bartflächen: alles, was gross genug ist.
@@ -639,5 +686,5 @@ export function analyzeBeard(photos, current = null) {
     outline(holes.label, c.id);
   }
 
-  return { shapes, used };
+  return { shapes, used, thresholds };
 }

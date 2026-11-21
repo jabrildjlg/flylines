@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=12";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=12";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=12";
+import { createTracker } from "./tracker.js?v=13";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=13";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=13";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");

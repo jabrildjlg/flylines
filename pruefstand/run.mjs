@@ -113,6 +113,54 @@ function measure(photo, soll) {
   };
 }
 
+// Punkt in einer oder mehreren geschlossenen Formen? Gerade/ungerade über alle Formen:
+// Ein Loch, das als eigene Form innerhalb einer Fläche liegt, zählt so als ausserhalb.
+function insideShapes(shapes, x, y) {
+  let inside = false;
+  for (const poly of shapes) {
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Flächenmass (nur für Fotos von vorn): Wie viel Prozent jeder Soll-Form sind vom
+ * Ergebnis gedeckt, und wie viel Ergebnis liegt ausserhalb jeder Soll-Form
+ * (in Prozent der gesamten Soll-Fläche)?
+ */
+function coverage(photo, soll) {
+  const got = photo.shapes.map((s) => sampleClosed(s, 8));
+  const want = soll.map((s) => sampleClosed(s, 8));
+  const all = got.concat(want).flat();
+  if (!all.length || !want.length) return {};
+  const step = photo.faceWidth / 300;
+  const x0 = Math.min(...all.map((p) => p.x)), x1 = Math.max(...all.map((p) => p.x));
+  const y0 = Math.min(...all.map((p) => p.y)), y1 = Math.max(...all.map((p) => p.y));
+  const hit = want.map(() => 0), total = want.map(() => 0);
+  let wrong = 0;
+  for (let y = y0; y <= y1; y += step) {
+    for (let x = x0; x <= x1; x += step) {
+      const g = insideShapes(got, x, y);
+      let any = false;
+      want.forEach((w, k) => {
+        if (!insideShapes([w], x, y)) return;
+        any = true;
+        total[k]++;
+        if (g) hit[k]++;
+      });
+      if (g && !any) wrong++;
+    }
+  }
+  const sum = total.reduce((a, b) => a + b, 0) || 1;
+  const out = {};
+  want.forEach((_, k) => (out[`deckung${k + 1}`] = Math.round((hit[k] / (total[k] || 1)) * 100)));
+  out.falsch = Math.round((wrong / sum) * 100);
+  return out;
+}
+
 // ---- Ablauf ----------------------------------------------------------------------
 
 const only = option("nur", "");
@@ -173,7 +221,7 @@ try {
     await save("-nah", { zoom: true });
     if (flag("raster")) await save("-raster", { grid: true, lines: false, zoom: true });
     if (flag("soll")) await save("-soll", { lines: false, zoom: true });
-    rows.push({ foto: photo.name, gedreht: Math.round(photo.turned * 100) / 100, ...(measure(photo, soll) || { shapes: photo.shapes.length }) });
+    rows.push({ foto: photo.name, gedreht: Math.round(photo.turned * 100) / 100, ...(measure(photo, soll) || { shapes: photo.shapes.length }), ...(photo.turned < 0.5 ? coverage(photo, soll) : {}) });
   }
 
   await fs.writeFile(path.join(outDir, "messung.json"), JSON.stringify({ name: runName, summary, rows }, null, 2));
