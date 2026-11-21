@@ -147,6 +147,7 @@ button {
   left: 0; right: 0; bottom: 0;
   display: flex;
   justify-content: center;
+  gap: 10px;
   padding: 16px 16px calc(var(--safe-bottom) + 16px);
   background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
   z-index: 2;

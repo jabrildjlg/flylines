@@ -1,6 +1,7 @@
-// FlyLines – Bauschritt 2: Kamerabild mit Gesichtstracking.
+// FlyLines – Bauschritt 3: Kamerabild, Gesichtstracking und projizierte Testlinie.
 
 import { createTracker } from "./tracker.js";
+import { TEST_STYLE, StyleSmoother, projectLine, drawLine } from "./lines.js";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -12,9 +13,17 @@ const controls = document.getElementById("controls");
 const message = document.getElementById("message");
 const statusEl = document.getElementById("status");
 const notice = document.getElementById("notice");
+const dotsBtn = document.getElementById("dotsBtn");
 
 // Mit ?cpu=1 in der Adresse lässt sich die Grafikkarte zum Vergleich abschalten.
-const forceCpu = new URLSearchParams(location.search).has("cpu");
+const params = new URLSearchParams(location.search);
+const forceCpu = params.has("cpu");
+// Mit ?glatt=0 lässt sich die Glättung zum Vergleich abschalten.
+const smoothing = params.get("glatt") !== "0";
+
+const style = TEST_STYLE;
+const smoother = new StyleSmoother({ minCutoff: 1.5, beta: 0.02 });
+let showDots = false;
 
 let stream = null;
 let tracker = null;
@@ -78,6 +87,18 @@ function drawLandmarks(landmarks) {
   }
 }
 
+// Zeichnet alle Linien des Styles an ihre Stelle im Gesicht.
+function drawStyle(landmarks, timeMs) {
+  const w = overlay.width;
+  const h = overlay.height;
+  const width = Math.max(3, Math.min(w, h) / 160);
+  for (const line of style.lines) {
+    let pts = projectLine(line, landmarks, w, h);
+    if (smoothing) pts = smoother.smooth(line.id, pts, timeMs);
+    drawLine(ctx, pts, { width });
+  }
+}
+
 // ---- Bildrate messen -------------------------------------------------------
 
 let fpsFrames = 0;
@@ -128,7 +149,12 @@ function loop() {
   }
 
   clearOverlay();
-  if (face) drawLandmarks(face.landmarks);
+  if (face) {
+    if (showDots) drawLandmarks(face.landmarks);
+    drawStyle(face.landmarks, now);
+  } else {
+    smoother.reset(); // Nach einer Unterbrechung nicht vom alten Ort her einschwenken.
+  }
 
   const hasFace = Boolean(face);
   if (hasFace !== faceVisible) {
@@ -157,6 +183,7 @@ async function startTracking() {
   showNotice("Kein Gesicht im Bild.");
   faceVisible = false;
   failures = 0;
+  smoother.reset();
   fpsFrames = 0;
   fpsSince = 0;
   lastVideoTime = -1;
@@ -225,6 +252,10 @@ function stopCamera() {
 
 startBtn.addEventListener("click", startCamera);
 stopBtn.addEventListener("click", stopCamera);
+dotsBtn.addEventListener("click", () => {
+  showDots = !showDots;
+  dotsBtn.textContent = showDots ? "Punkte aus" : "Punkte ein";
+});
 video.addEventListener("loadedmetadata", resizeOverlay);
 
 // iOS hält die Kamera an, wenn die Seite in den Hintergrund geht.
