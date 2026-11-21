@@ -99,10 +99,19 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
 
 - Schritt 1 bestanden (iPhone-Test am 21.11.2026): Grundgerüst, gespiegeltes Kamerabild, GitHub Pages unter https://jabrildjlg.github.io/flylines/.
 - Schritt 2 bestanden (iPhone-Test am 21.11.2026): 30 bis 60 FPS mit GPU bei 720×1280, Punkte sitzen richtig. Das Netz endet an der oberen Stirn, etwa 2 cm unter dem Haaransatz des Nutzers (wichtig für Schritt 11).
-- Schritt 3 gebaut, erste Runde am iPhone: Testlinie sitzt richtig (frontal und gedreht), zog aber sichtbar nach. Korrektur gebaut: Kamerabild wird pro Bild auf die Zeichenfläche kopiert, Erkennung läuft auf dieser Kopie, Linien darüber (Bild und Linien immer vom selben Moment); Schleife über `requestVideoFrameCallback`; Glättung leichter (minCutoff 2, beta 0.05). Zweite Runde: Nachziehen weg, aber nur noch etwa 15 FPS, weil die Erkennung von der Zeichenfläche las (Weg 2D-Canvas → Grafikkarte ist in Safari langsam). Korrektur: Kamerabild auf die Zeichenfläche kopieren, Erkennung unmittelbar danach direkt vom `<video>`. Statuszeile zeigt zusätzlich die Rechenzeit pro Bild in ms. Wartet auf den dritten Test.
+- Schritt 3 bestanden (iPhone-Test am 21.11.2026): Testlinie klebt frontal und gedreht an der Haut, 25 FPS bei 33 ms Rechenzeit pro Bild. Erkenntnisse aus drei Runden:
+  - Das `<video>` nie direkt zeigen, sonst ziehen die Linien nach. Pro Bild: Kamerabild auf die Zeichenfläche kopieren, unmittelbar danach erkennen, Linien darüber.
+  - Die Erkennung muss direkt vom `<video>` lesen. Von der 2D-Zeichenfläche gelesen fiel die Bildrate in Safari auf etwa 15 FPS.
+  - 33 ms pro Bild sind knapp am Takt der Kamera (30 Bilder pro Sekunde). Falls spätere Schritte die Bildrate unter 20 drücken: zuerst die Kopie des Kamerabilds verkleinern.
+- Schritt 4 gebaut (Linien-Editor auf einem Foto). Wartet auf den Test am iPhone.
 - MediaPipe: `@mediapipe/tasks-vision` Version 1.2.3, in `tracker.js` fest eingetragen. Bibliothek, WASM und Modell werden vorerst aus dem Netz geladen (jsDelivr, Modell von Hugging Face bzw. Google Storage). Liegt das Modell unter `models/face_landmarker.task`, wird es automatisch von dort genommen. Für Schritt 12 (offline) müssen Bibliothek, WASM und Modell ins Repository.
 - Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `TEST_STYLE` ist nur die Testlinie und wird in Schritt 5 durch echte Styles ersetzt.
-- Entscheid für Schritt 4/5: Das Dreieck eines neuen Kontrollpunkts wird im Editor aus einer Delaunay-Triangulation der 2D-Landmarks des Fotos bestimmt. Die offizielle Tesselations-Tabelle von MediaPipe wird nicht gebraucht, weil jedes Dreieck aus drei Landmarks als Anker taugt.
-- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds (alter Zustand zum Vergleich). Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
-- Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Zeichnen), `tracker.js` (MediaPipe), `lines.js` (Linien).
-- Nächster Schritt nach bestandenem Test: 4 (Linien-Editor).
+- Editor (`editor.js`, `geometry.js`):
+  - Foto wird nach der Gesichtserkennung auf das Gesicht zugeschnitten (Rand für Hals, Ohren, Haaransatz).
+  - Anker eines Punkts: Delaunay-Triangulation der 468 Netzpunkte des Fotos (Iris-Punkte 468–477 ausgeschlossen, sie bewegen sich mit dem Blick), dann baryzentrische Gewichte. Ausserhalb des Netzes: nächstes Dreieck, Gewichte dürfen negativ sein.
+  - Bedienung: Punkt ziehen (mit Lupe), Linie antippen oder «Punkt +» für neuen Punkt, «Punkt löschen», «Spiegeln», «Zurücksetzen».
+  - Spiegeln rechnet in 3D an der Gesichtsmitte (Ebene aus den Paaren 33/263, 133/362, 61/291, 234/454 und Mittellinien-Punkten), nicht über eine Tabelle von Landmark-Paaren. Die im Bild linke Hälfte ist die Quelle. Linien ganz auf einer Seite bekommen eine Partnerlinie (`mirrorOf`).
+  - Editor und Live-Spiegel benutzen dasselbe Style-Objekt im Speicher; gespeichert wird noch nichts (Schritt 7).
+- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
+- Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Bildschirme), `tracker.js` (MediaPipe), `lines.js` (Linien), `editor.js` (Editor), `geometry.js` (Dreiecksnetz, Spiegelung). Bei jeder Änderung die Versionsnummer `?v=` in `index.html` und in den `import`-Zeilen erhöhen, sonst lädt Safari alte Dateien.
+- Nächster Schritt nach bestandenem Test: 5 (Style aus Vorzeigebild).

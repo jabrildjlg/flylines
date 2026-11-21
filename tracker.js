@@ -62,6 +62,19 @@ export async function createTracker({ forceCpu = false } = {}) {
               matrix: matrixes && matrixes[0] ? matrixes[0].data : null,
             };
           },
+          // Erkennt das Gesicht auf einem einzelnen Foto (für den Linien-Editor).
+          // Nicht aufrufen, während die Live-Schleife läuft.
+          async detectImage(source) {
+            await landmarker.setOptions({ runningMode: "IMAGE" });
+            try {
+              const result = landmarker.detect(source);
+              const landmarks = result.faceLandmarks && result.faceLandmarks[0];
+              if (!landmarks) return null;
+              return { landmarks: landmarks.map((p) => ({ x: p.x, y: p.y, z: p.z })) };
+            } finally {
+              await landmarker.setOptions({ runningMode: "VIDEO" });
+            }
+          },
           close() {
             landmarker.close();
           },

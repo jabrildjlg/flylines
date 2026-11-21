@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <main id="app">
@@ -26,6 +26,7 @@
       <h1>FlyLines</h1>
       <p class="lead">Dein Style als Linien im Spiegel.</p>
       <button id="startBtn" class="primary" type="button">Kamera starten</button>
+      <button id="editorBtn" class="secondary" type="button">Linien-Editor</button>
       <p id="message" class="message" role="alert" hidden></p>
       <p class="hint">Das Kamerabild bleibt auf deinem Gerät.</p>
     </section>
@@ -37,8 +38,34 @@
       <button id="dotsBtn" class="ghost" type="button">Punkte ein</button>
       <button id="stopBtn" class="ghost" type="button">Kamera stoppen</button>
     </footer>
+    <!-- Linien-Editor: Linien auf einem Foto bearbeiten -->
+    <section id="editor" class="editor" hidden>
+      <header class="editor-top">
+        <button id="editorBack" class="ghost small" type="button">‹ Zurück</button>
+        <span class="brand">Linien-Editor</span>
+        <span class="spacer"></span>
+      </header>
+
+      <div id="editorStage" class="editor-stage">
+        <canvas id="editorCanvas" width="0" height="0"></canvas>
+        <p id="editorMessage" class="editor-message" role="status">Wähle ein Foto, auf dem das Gesicht gross und gut beleuchtet ist.</p>
+      </div>
+
+      <p id="editorHint" class="editor-hint" hidden>Punkt ziehen · Punkt antippen, dann «Punkt +» oder «Punkt löschen»</p>
+
+      <footer class="editor-tools">
+        <label class="ghost small filebtn">
+          Foto wählen
+          <input id="photoInput" class="visually-hidden" type="file" accept="image/*">
+        </label>
+        <button id="addBtn" class="ghost small" type="button" disabled>Punkt +</button>
+        <button id="deleteBtn" class="ghost small" type="button" disabled>Punkt löschen</button>
+        <button id="mirrorBtn" class="ghost small" type="button" disabled>Spiegeln</button>
+        <button id="resetBtn" class="ghost small" type="button" disabled>Zurücksetzen</button>
+      </footer>
+    </section>
   </main>
 
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>

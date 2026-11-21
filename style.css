@@ -163,4 +163,98 @@ button {
   -webkit-backdrop-filter: blur(8px);
 }
 
+.secondary {
+  min-width: 220px;
+  padding: 14px 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.ghost.small { padding: 10px 14px; font-size: 14px; }
+.ghost:disabled { opacity: 0.4; }
+
+/* ---- Linien-Editor ---- */
+
+.editor {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+.editor-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.editor-top .spacer { width: 76px; }
+
+.editor-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#editorCanvas {
+  display: block;
+  touch-action: none; /* Finger zieht Punkte, nicht die Seite */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.editor-message {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.editor-hint {
+  margin: 0;
+  padding: 8px 12px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.editor-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+}
+
+.filebtn { position: relative; cursor: pointer; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 [hidden] { display: none !important; }

@@ -1,7 +1,8 @@
-// FlyLines – Bauschritt 3: Kamerabild, Gesichtstracking und projizierte Testlinie.
+// FlyLines – Bauschritt 4: Live-Spiegel mit Linien und Linien-Editor auf einem Foto.
 
-import { createTracker } from "./tracker.js";
-import { TEST_STYLE, StyleSmoother, projectLine, drawLine } from "./lines.js";
+import { createTracker } from "./tracker.js?v=6";
+import { TEST_STYLE, StyleSmoother, projectLine, drawLine } from "./lines.js?v=6";
+import { createEditor } from "./editor.js?v=6";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -23,7 +24,9 @@ const smoothing = params.get("glatt") !== "0";
 // Mit ?sync=0 wird das Kamerabild wie früher direkt gezeigt (Linien hinken dann leicht nach).
 const syncFrames = params.get("sync") !== "0";
 
-const style = TEST_STYLE;
+// Der Style wird von Live-Spiegel und Editor gemeinsam benutzt.
+const cloneStyle = (s) => JSON.parse(JSON.stringify(s));
+const style = cloneStyle(TEST_STYLE);
 const smoother = new StyleSmoother({ minCutoff: 2, beta: 0.05 });
 let showDots = false;
 
@@ -210,14 +213,23 @@ function cancelLoop() {
   else cancelAnimationFrame(loopId);
 }
 
+// Lädt den Tracker einmal und gibt ihn danach immer wieder zurück.
+function getTracker() {
+  if (!trackerPromise) {
+    trackerPromise = createTracker({ forceCpu }).catch((err) => {
+      trackerPromise = null;
+      throw err;
+    });
+  }
+  return trackerPromise;
+}
+
 async function startTracking() {
   showNotice("Gesichtstracking wird geladen …");
   try {
-    if (!trackerPromise) trackerPromise = createTracker({ forceCpu });
-    tracker = await trackerPromise;
+    tracker = await getTracker();
   } catch (err) {
     console.error(err);
-    trackerPromise = null;
     showNotice("Das Gesichtstracking konnte nicht geladen werden. Prüfe die Internetverbindung und starte die Kamera neu.");
     return;
   }
@@ -300,6 +312,66 @@ dotsBtn.addEventListener("click", () => {
   dotsBtn.textContent = showDots ? "Punkte aus" : "Punkte ein";
 });
 video.addEventListener("loadedmetadata", resizeOverlay);
+
+// ---- Linien-Editor -----------------------------------------------------------
+
+const editorScreen = document.getElementById("editor");
+const editorMessage = document.getElementById("editorMessage");
+const editorHint = document.getElementById("editorHint");
+const addBtn = document.getElementById("addBtn");
+const deleteBtn = document.getElementById("deleteBtn");
+const mirrorBtn = document.getElementById("mirrorBtn");
+const resetBtn = document.getElementById("resetBtn");
+const photoInput = document.getElementById("photoInput");
+
+function updateEditorButtons() {
+  const ready = editor.hasPhoto();
+  addBtn.disabled = !editor.hasSelection();
+  deleteBtn.disabled = !editor.canDelete();
+  mirrorBtn.disabled = !ready;
+  resetBtn.disabled = !ready;
+  editorHint.hidden = !ready;
+}
+
+const editor = createEditor({
+  canvas: document.getElementById("editorCanvas"),
+  stage: document.getElementById("editorStage"),
+  style,
+  getTracker,
+  onMessage(text) {
+    editorMessage.textContent = text;
+    editorMessage.hidden = !text;
+  },
+  onChange: () => updateEditorButtons(),
+});
+
+document.getElementById("editorBtn").addEventListener("click", () => {
+  if (stream) stopCamera();
+  editorScreen.hidden = false;
+  editor.refresh();
+  updateEditorButtons();
+});
+
+document.getElementById("editorBack").addEventListener("click", () => {
+  editorScreen.hidden = true;
+});
+
+photoInput.addEventListener("change", async () => {
+  const file = photoInput.files && photoInput.files[0];
+  photoInput.value = ""; // dasselbe Foto soll sich erneut wählen lassen
+  if (!file) return;
+  await editor.loadPhoto(file);
+  updateEditorButtons();
+});
+
+addBtn.addEventListener("click", () => editor.addAfterSelected());
+deleteBtn.addEventListener("click", () => editor.deleteSelected());
+mirrorBtn.addEventListener("click", () => editor.mirror());
+resetBtn.addEventListener("click", () => {
+  style.lines = cloneStyle(TEST_STYLE).lines;
+  editor.refresh();
+  updateEditorButtons();
+});
 
 // iOS hält die Kamera an, wenn die Seite in den Hintergrund geht.
 // Beim Zurückkommen zeigen wir wieder den Startbildschirm, statt ein eingefrorenes Bild.
