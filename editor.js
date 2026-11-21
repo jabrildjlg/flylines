@@ -5,9 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=9";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=9";
-import { analyzeBeard } from "./analyze.js?v=9";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=10";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=10";
+import { analyzeBeard } from "./analyze.js?v=10";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
@@ -170,6 +170,10 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     drag = null;
     canvas.width = photo().image.width;
     canvas.height = photo().image.height;
+    zoom = 1;
+    panX = panY = 0;
+    pointers.clear();
+    pinch = panDrag = null;
     fit();
     render();
     onChange();
@@ -183,6 +187,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const scale = Math.min(box.width / canvas.width, box.height / canvas.height);
     canvas.style.width = `${Math.floor(canvas.width * scale)}px`;
     canvas.style.height = `${Math.floor(canvas.height * scale)}px`;
+    applyView();
   }
 
   // ---- Umrechnen -------------------------------------------------------------
@@ -261,14 +266,19 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
 
   // Lupe: zeigt die Stelle unter dem Finger vergrössert in einer Ecke.
   function drawLoupe(p, u) {
-    const w = canvas.width;
-    const size = Math.min(150 * u, w * 0.42);
-    const zoom = 2.5;
+    // Sichtbarer Ausschnitt der Zeichenfläche (bei Zoom ist nur ein Teil zu sehen).
+    const rect = canvas.getBoundingClientRect();
+    const box = stage.getBoundingClientRect();
+    const left = Math.max(0, box.left - rect.left) * u;
+    const right = Math.min(rect.width, box.right - rect.left) * u;
+    const top = Math.max(0, box.top - rect.top) * u;
+    const size = Math.min(150 * u, (right - left) * 0.42);
+    const magnify = 2.5;
     const margin = 12 * u;
-    const onLeft = p.x > w / 2; // Lupe auf die Seite, auf der der Finger nicht ist
-    const cx = onLeft ? margin + size / 2 : w - margin - size / 2;
-    const cy = margin + size / 2;
-    const src = size / zoom;
+    const onLeft = p.x > (left + right) / 2; // Lupe auf die Seite, auf der der Finger nicht ist
+    const cx = onLeft ? left + margin + size / 2 : right - margin - size / 2;
+    const cy = top + margin + size / 2;
+    const src = size / magnify;
 
     ctx.save();
     ctx.beginPath();
@@ -341,10 +351,90 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     if (side) lastSide = side;
   }
 
+  // ---- Zoom ------------------------------------------------------------------
+  // Zwei Finger: zoomen und verschieben. Ein Finger auf freier Fläche: verschieben
+  // (nur wenn gezoomt). Die Zeichenfläche wird dazu per CSS vergrössert und verschoben;
+  // alle Umrechnungen lesen die echte Lage vom Bildschirm ab und stimmen darum weiter.
+  const MAX_ZOOM = 6;
+  let zoom = 1;
+  let panX = 0; // Verschiebung in Bildschirm-Pixeln
+  let panY = 0;
+
+  function applyView() {
+    const box = stage.getBoundingClientRect();
+    const w = parseFloat(canvas.style.width) || 0;
+    const h = parseFloat(canvas.style.height) || 0;
+    // Nicht weiter verschieben, als das vergrösserte Foto über den Rand hinausragt.
+    const maxX = Math.max(0, (w * zoom - box.width) / 2);
+    const maxY = Math.max(0, (h * zoom - box.height) / 2);
+    panX = Math.max(-maxX, Math.min(maxX, panX));
+    panY = Math.max(-maxY, Math.min(maxY, panY));
+    canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  }
+
+  function setZoom(value) {
+    zoom = Math.max(1, Math.min(MAX_ZOOM, value));
+    if (zoom === 1) panX = panY = 0;
+    applyView();
+    render();
+    onChange();
+  }
+
   // ---- Finger ----------------------------------------------------------------
 
+  const pointers = new Map(); // aktive Finger: id → { x, y } auf dem Bildschirm
+  let pinch = null; // { dist, zoom, midX, midY, panX, panY }
+  let panDrag = null; // { pointerId, x, y, panX, panY }
+
+  function startPinch() {
+    const [a, b] = [...pointers.values()];
+    // Hat der erste Finger eben erst einen Punkt eingefügt, war das ein Versehen.
+    if (drag && drag.inserted && selected) {
+      style.lines[selected.line].points.splice(selected.point, 1);
+      selected = null;
+    }
+    drag = null;
+    panDrag = null;
+    pinch = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      zoom,
+      midX: (a.x + b.x) / 2,
+      midY: (a.y + b.y) / 2,
+      panX,
+      panY,
+    };
+    render();
+  }
+
+  function movePinch() {
+    const [a, b] = [...pointers.values()];
+    const box = stage.getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    const next = Math.max(1, Math.min(MAX_ZOOM, (pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist));
+    // Die Stelle unter den Fingern bleibt unter den Fingern.
+    const k = next / pinch.zoom;
+    panX = midX - cx - (pinch.midX - cx - pinch.panX) * k;
+    panY = midY - cy - (pinch.midY - cy - pinch.panY) * k;
+    zoom = next;
+    if (zoom === 1) panX = panY = 0;
+    applyView();
+    render();
+  }
+
   canvas.addEventListener("pointerdown", (e) => {
-    if (!hasPhoto() || drag) return;
+    if (!hasPhoto()) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    if (pointers.size === 2) {
+      startPinch();
+      return;
+    }
+    if (pointers.size > 2 || drag) return;
+
     const p = toCanvas(e);
     const u = unit();
 
@@ -356,27 +446,39 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     if (handle && (handle.dist <= 11 * u || !seg)) {
       const q = positionOf(style.lines[handle.line].points[handle.point]);
       hit = { line: handle.line, point: handle.point };
-      drag = { pointerId: e.pointerId, dx: q.x - p.x, dy: q.y - p.y };
+      drag = { pointerId: e.pointerId, dx: q.x - p.x, dy: q.y - p.y, inserted: false };
     } else if (seg) {
       const anchor = anchorAt(p.x, p.y);
       if (anchor) {
         style.lines[seg.line].points.splice(seg.after + 1, 0, anchor);
         hit = { line: seg.line, point: seg.after + 1 };
-        drag = { pointerId: e.pointerId, dx: 0, dy: 0 };
+        drag = { pointerId: e.pointerId, dx: 0, dy: 0, inserted: true };
       }
+    } else if (zoom > 1) {
+      // Freie Fläche und gezoomt: Foto verschieben.
+      panDrag = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, panX, panY };
     }
 
     selected = hit;
     rememberSide();
-    if (drag) {
-      canvas.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    }
     render();
     onChange();
   });
 
   canvas.addEventListener("pointermove", (e) => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pointers.size >= 2) {
+      e.preventDefault();
+      movePinch();
+      return;
+    }
+    if (panDrag && e.pointerId === panDrag.pointerId) {
+      panX = panDrag.panX + e.clientX - panDrag.x;
+      panY = panDrag.panY + e.clientY - panDrag.y;
+      applyView();
+      e.preventDefault();
+      return;
+    }
     if (!drag || e.pointerId !== drag.pointerId || !selected) return;
     const p = toCanvas(e);
     const x = Math.max(0, Math.min(canvas.width, p.x + drag.dx));
@@ -384,21 +486,35 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const anchor = anchorAt(x, y);
     if (anchor) {
       style.lines[selected.line].points[selected.point] = anchor;
+      drag.inserted = false; // bewegt: der neue Punkt ist gewollt
       edited = true;
     }
     e.preventDefault();
     render();
   });
 
-  function endDrag(e) {
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pinch) {
+      if (pointers.size < 2) {
+        pinch = null;
+        onChange();
+      }
+      return;
+    }
+    if (panDrag && e.pointerId === panDrag.pointerId) {
+      panDrag = null;
+      return;
+    }
     if (!drag || e.pointerId !== drag.pointerId) return;
+    if (drag.inserted) edited = true;
     drag = null;
     rememberSide();
     render();
     onChange();
   }
-  canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", endDrag);
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
 
   // ---- Aktionen --------------------------------------------------------------
 
@@ -619,6 +735,8 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     hasSelection: () => Boolean(selected),
     mirror,
     analyze,
+    zoomLevel: () => zoom,
+    setZoom,
     refresh,
     hasPhoto,
   };

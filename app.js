@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=9";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=9";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=9";
+import { createTracker } from "./tracker.js?v=10";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=10";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=10";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -331,6 +331,7 @@ const photoLabel = document.getElementById("photoLabel");
 const addBtn = document.getElementById("addBtn");
 const deleteBtn = document.getElementById("deleteBtn");
 const shapeBtn = document.getElementById("shapeBtn");
+const zoomBtn = document.getElementById("zoomBtn");
 const mirrorBtn = document.getElementById("mirrorBtn");
 const resetBtn = document.getElementById("resetBtn");
 const analyzeBtn = document.getElementById("analyzeBtn");
@@ -344,6 +345,8 @@ function updateEditorButtons() {
   addBtn.disabled = !editor.hasSelection();
   deleteBtn.disabled = !editor.canDelete();
   shapeBtn.disabled = !editor.hasSelection();
+  zoomBtn.disabled = !ready;
+  zoomBtn.textContent = `Zoom ${Math.round(editor.zoomLevel() * 10) / 10}×`;
   mirrorBtn.disabled = !ready;
   resetBtn.disabled = !ready;
   analyzeBtn.disabled = !ready;
@@ -443,6 +446,11 @@ analyzeBtn.addEventListener("click", async () => {
 addBtn.addEventListener("click", () => editor.addAfterSelected());
 deleteBtn.addEventListener("click", () => editor.deleteSelected());
 shapeBtn.addEventListener("click", () => editor.deleteShape());
+// Zoom ohne Fingergeste: 1× → 2× → 4× → 1×
+zoomBtn.addEventListener("click", () => {
+  const z = editor.zoomLevel();
+  editor.setZoom(z < 1.9 ? 2 : z < 3.9 ? 4 : 1);
+});
 mirrorBtn.addEventListener("click", () => editor.mirror());
 resetBtn.addEventListener("click", () => {
   style.lines = cloneStyle(DEFAULT_STYLE).lines;

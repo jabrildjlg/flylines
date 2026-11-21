@@ -121,6 +121,9 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
     - Geprüft auf dem frontalen Foto mit von Hand gesetzten Gesichtspunkten (hier lässt sich MediaPipe nicht ausführen): Schnauzer, Fleck unter der Lippe und Goatee werden gefunden; ein kleiner falscher Fleck am Gesichtsrand und ein Ausläufer am Kiefer bleiben. Mit echten Landmarks und mit mehreren Fotos noch nicht geprüft.
     - Zweites «Analysieren» nach eigenen Änderungen erfindet nichts neu: Jeder Punkt wird nur an die nächste Bartkante innerhalb von 3,5 % der Gesichtsbreite gezogen (Feinabgleich). «Zurücksetzen» beginnt neu.
   - Editor: mehrere Fotos auf einmal wählbar; beim Ziehen werden die anderen Punkte ausgeblendet; «Spiegeln» überträgt die zuletzt bearbeitete oder angetippte Seite; «Form löschen» entfernt eine ganze Form. Gruppen sind jetzt «Bart» und «Brauen».
+  - Zoom im Editor: zwei Finger zoomen (bis 6×) und verschieben, ein Finger auf freier Fläche verschiebt, Knopf «Zoom» schaltet 1× → 2× → 4× → 1×. Umsetzung über CSS-Transform der Zeichenfläche; die Lupe bleibt im sichtbaren Ausschnitt.
+  - Vierte Runde am iPhone: Die Farb-Analyse trifft den Schnauzer brauchbar, läuft aber unter dem Mund auf der Schattenseite aus (mehrere überlappende Formen bis zur Wange). Der Nutzer beurteilt sie als nicht gut genug. Darum läuft eine Recherche nach einem modellbasierten Verfahren (Notizen ausserhalb des Repositories).
+  - Testbilder des Nutzers (frontal, Profil links, Profil rechts, je 1122×1402) liegen lokal ausserhalb des Repositories und dürfen nicht eingecheckt werden.
   - Offene Wünsche des Nutzers: Der Style soll sich an seinen Kopf anpassen statt 1:1 übernommen zu werden (gehört zu Schritt 6: Feinjustierung auf dem eigenen Gesicht). Augenbrauen werden noch nicht analysiert.
 - Inhalt von Schritt 5:
   - `DEFAULT_STYLE` in `lines.js`: geschlossene Startformen für Schnauzer, Goatee und beide Augenbrauen.
