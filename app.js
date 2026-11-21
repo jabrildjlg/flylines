@@ -1,8 +1,9 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=13";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=13";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=13";
+import { createTracker } from "./tracker.js?v=14";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=14";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=14";
+import { BEARD_TEMPLATES } from "./vorlagen.js?v=14";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -28,7 +29,18 @@ const hideFarSide = params.get("verdeckt") !== "0";
 
 // Der Style wird von Live-Spiegel und Editor gemeinsam benutzt.
 const cloneStyle = (s) => JSON.parse(JSON.stringify(s));
-const style = cloneStyle(DEFAULT_STYLE);
+// Fertige Styles («Vorlagen»): von Hand nachgezeichnete Bartkonturen (vorlagen.js),
+// jeweils mit den Brauen aus den Startformen.
+const TEMPLATES = BEARD_TEMPLATES.map((t) => ({
+  id: t.id,
+  name: t.name,
+  lines: cloneStyle(t.lines).concat(cloneStyle(DEFAULT_STYLE.lines.filter((l) => l.area !== "bart"))),
+}));
+// Pro Vorlage eine Arbeitskopie: Was im Editor nachjustiert wird, bleibt beim
+// Wechseln der Vorlage erhalten (bis die Seite neu geladen wird).
+const work = TEMPLATES.map(cloneStyle);
+let currentTemplate = 0;
+const style = { name: work[0].name, lines: work[0].lines };
 const smoother = new StyleSmoother({ minCutoff: 2, beta: 0.05 });
 let showDots = false;
 
@@ -345,11 +357,12 @@ const styleState = document.getElementById("styleState");
 // Freigabe: Bei «Passt» wird ein Abdruck der Linien gemerkt. Der Style gilt nur
 // als fertig, solange die Linien genau diesem Abdruck entsprechen; jede spätere
 // Änderung (Ziehen, Spiegeln, Analysieren, Zurücksetzen) hebt die Freigabe auf.
-let approvedLines = null;
-const isApproved = () => approvedLines !== null && approvedLines === JSON.stringify(style.lines);
+// Die Freigabe gilt pro Vorlage.
+const approved = TEMPLATES.map(() => null);
+const isApproved = () => approved[currentTemplate] !== null && approved[currentTemplate] === JSON.stringify(style.lines);
 
 function updateStyleState() {
-  styleState.hidden = approvedLines === null;
+  styleState.hidden = approved[currentTemplate] === null;
   styleState.textContent = isApproved()
     ? "✓ Style freigegeben."
     : "Style seit der Freigabe geändert. Im Editor mit «Fertig» neu freigeben.";
@@ -416,6 +429,39 @@ const editor = createEditor({
   onChange: () => updateEditorButtons(),
 });
 
+// ---- Vorlage wählen (Startbildschirm) -------------------------------------------
+
+const templateChips = document.getElementById("templateChips");
+const editorTitle = document.getElementById("editorTitle");
+
+function updateTemplateChips() {
+  templateChips.replaceChildren();
+  TEMPLATES.forEach((template, i) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip big" + (i === currentTemplate ? " on" : "");
+    chip.textContent = template.name;
+    chip.addEventListener("click", () => selectTemplate(i));
+    templateChips.append(chip);
+  });
+  editorTitle.textContent = `Editor · ${style.name}`;
+}
+
+// Wechselt den Style, den Live-Spiegel und Editor zeigen.
+function selectTemplate(index) {
+  if (index === currentTemplate) return;
+  work[currentTemplate].lines = style.lines; // Stand der bisherigen Vorlage merken
+  currentTemplate = index;
+  style.name = work[index].name;
+  style.lines = work[index].lines;
+  editor.resetAnalysis();
+  smoother.reset();
+  updateTemplateChips();
+  updateStyleState();
+}
+
+updateTemplateChips();
+
 document.getElementById("editorBtn").addEventListener("click", () => {
   if (stream) stopCamera();
   editorScreen.hidden = false;
@@ -447,7 +493,7 @@ document.getElementById("reviewBack").addEventListener("click", () => {
 });
 
 document.getElementById("reviewOk").addEventListener("click", () => {
-  approvedLines = JSON.stringify(style.lines);
+  approved[currentTemplate] = JSON.stringify(style.lines);
   closeReview();
   editorScreen.hidden = true;
   updateEditorButtons();
@@ -506,7 +552,7 @@ zoomBtn.addEventListener("click", () => {
 });
 mirrorBtn.addEventListener("click", () => editor.mirror());
 resetBtn.addEventListener("click", () => {
-  style.lines = cloneStyle(DEFAULT_STYLE).lines;
+  style.lines = cloneStyle(TEMPLATES[currentTemplate]).lines; // zurück zur gewählten Vorlage
   editor.resetAnalysis();
   editorHint.textContent = DEFAULT_HINT;
   editor.refresh();

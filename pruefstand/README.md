@@ -55,3 +55,15 @@ Vom Ergebnis zählt auf jedem Foto nur, was der Kamera zugewandt ist.
 ```
 
 Zum Einzeichnen `--raster` laufen lassen und die Punkte im Bild `<foto>-raster.png` ablesen, danach mit einem normalen Lauf im Bild `<foto>-nah.png` kontrollieren.
+
+## Vorlagen (fertige Styles)
+
+`<fotos>/vorlagen.json` enthält pro Vorlage das Foto, die von Hand gezeichneten Formen (`schnauzer`, `fleck`, `kinnbart`, Punkte in Prozent des Originalfotos) und die Ausschnitte für die Kontrollbilder.
+
+```
+node pruefstand/vorlagen.mjs --raster       # Kontrollbilder mit Raster und nummerierten Punkten
+node pruefstand/vorlagen.mjs --schreiben    # Konturen in Anker umrechnen und ../vorlagen.js erzeugen
+node pruefstand/kamera.mjs                  # echte App mit Testfoto als Kamerabild, pro Vorlage ein Bildschirmfoto
+```
+
+Alle Bilder landen in `<fotos>/ergebnis/vorlagen/`. `kamera.mjs` prüft den Weg «Vorlage wählen → Kamera starten» ohne echte Kamera; die Bildrate dort sagt nichts über das iPhone.

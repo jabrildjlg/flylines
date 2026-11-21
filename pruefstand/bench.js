@@ -4,6 +4,7 @@
 import { createTracker } from "../tracker.js";
 import { DEFAULT_STYLE, projectLine, projectLine3, headCenter, drawLine } from "../lines.js";
 import { createEditor } from "../editor.js";
+import { locate } from "../geometry.js";
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const style = clone(DEFAULT_STYLE);
@@ -97,6 +98,20 @@ window.bench = {
     return { ...summary, changed: before !== JSON.stringify(beardLines().map((l) => l.points)) };
   },
 
+  /** Rechnet Formen (Pixel des Ausschnitts von Foto index) in Anker im Gesichtsnetz um, wie der Editor. */
+  anchorsFor(index, shapes) {
+    const photo = editor.photoData()[index];
+    return shapes.map((shape) => shape.map((p) => locate(photo.tris, photo.pixels, p.x, p.y)));
+  },
+
+  /** Setzt die Bartformen des Styles auf die gegebenen Anker (Brauen bleiben). */
+  setBeard(shapes) {
+    style.lines = clone(DEFAULT_STYLE)
+      .lines.filter((l) => l.area !== "bart")
+      .concat(shapes.map((points, i) => ({ id: `bart-${i + 1}`, group: "bart", area: "bart", closed: true, enabled: true, points })));
+    return style.lines.length;
+  },
+
   /** Startformen ohne Analyse (Vergleichswert). */
   defaults() {
     style.lines = clone(DEFAULT_STYLE).lines;
@@ -114,7 +129,7 @@ window.bench = {
    * @param {{x:number,y:number}[][]} soll  Soll-Formen in Pixeln des Ausschnitts
    * @param {{dots?: boolean, grid?: boolean, lines?: boolean}} options
    */
-  overlay(index, soll = [], { dots = false, grid = false, lines = true, zoom = false } = {}) {
+  overlay(index, soll = [], { dots = false, grid = false, lines = true, zoom = false, marks = false } = {}) {
     const photo = editor.photoData()[index];
     const w = photo.image.width;
     const h = photo.image.height;
@@ -122,7 +137,16 @@ window.bench = {
 
     // Ausschnitt: ganzes Foto oder nur die untere Gesichtshälfte (vergrössert).
     let rect = { x: 0, y: 0, w, h };
-    if (zoom) {
+    let fine = false;
+    if (zoom && typeof zoom === "object") {
+      // Frei gewählter Ausschnitt in Prozent des Originalfotos (stark vergrössert).
+      const { crop } = photo;
+      const k = w / crop.width;
+      const X = (p) => ((p / 100) * crop.srcWidth - crop.x) * k;
+      const Y = (p) => ((p / 100) * crop.srcHeight - crop.y) * k;
+      rect = { x: X(zoom.x0), y: Y(zoom.y0), w: X(zoom.x1) - X(zoom.x0), h: Y(zoom.y1) - Y(zoom.y0) };
+      fine = zoom.x1 - zoom.x0 < 30;
+    } else if (zoom) {
       const xs = px.map((p) => p.x);
       const x0 = Math.min(...xs), x1 = Math.max(...xs);
       const faceH = Math.hypot(px[10].x - px[152].x, px[10].y - px[152].y);
@@ -139,7 +163,7 @@ window.bench = {
     const c = view.getContext("2d");
     c.setTransform(s, 0, 0, s, -rect.x * s, -rect.y * s);
     c.drawImage(photo.image, 0, 0);
-    const width = Math.max(1.5, view.width / 500) / s;
+    const width = Math.max(1.5, view.width / (fine ? 900 : 500)) / s;
 
     if (grid) {
       // Raster in Prozent des ORIGINALFOTOS, zum Ablesen von Soll-Punkten.
@@ -147,10 +171,10 @@ window.bench = {
       const k = w / crop.width;
       const font = view.width / 70 / s;
       c.font = `bold ${font}px sans-serif`;
-      const step = zoom ? 1 : 2;
+      const step = fine ? 0.5 : zoom ? 1 : 2;
       for (let p = 0; p <= 100; p += step) {
-        const major = p % 10 === 0;
-        const mid = p % 2 === 0;
+        const major = p % (fine ? 5 : 10) === 0;
+        const mid = p % (fine ? 1 : 2) === 0;
         c.strokeStyle = major ? "rgba(255,255,0,0.85)" : mid ? "rgba(255,255,0,0.4)" : "rgba(255,255,0,0.18)";
         c.lineWidth = (major ? 2 : 1) / s;
         const x = ((p / 100) * crop.srcWidth - crop.x) * k;
@@ -171,6 +195,20 @@ window.bench = {
       for (const p of px) c.fillRect(p.x - d / 2, p.y - d / 2, d, d);
     }
     for (const shape of soll) drawLine(c, shape, { color: "#ff3df2", width, closed: true, halo: false });
+    if (marks) {
+      // Kontrollpunkte der Soll-Formen mit Nummer, zum gezielten Korrigieren.
+      const font = view.width / 90 / s;
+      c.font = `bold ${font}px sans-serif`;
+      for (const shape of soll) {
+        shape.forEach((p, i) => {
+          c.fillStyle = "#00e5ff";
+          c.beginPath();
+          c.arc(p.x, p.y, 2.2 * width, 0, Math.PI * 2);
+          c.fill();
+          c.fillText(String(i), p.x + 3 * width, p.y - 3 * width);
+        });
+      }
+    }
     if (lines) {
       for (const line of beardLines()) {
         drawLine(c, projectLine(line, photo.landmarks, w, h), { width, closed: line.closed, halo: false });

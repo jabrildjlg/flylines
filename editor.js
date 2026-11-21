@@ -5,9 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=13";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=13";
-import { analyzeBeard } from "./analyze.js?v=13";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=14";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=14";
+import { analyzeBeard } from "./analyze.js?v=14";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.

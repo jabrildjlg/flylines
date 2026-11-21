@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <main id="app">
@@ -25,6 +25,7 @@
     <section id="start" class="panel">
       <h1>FlyLines</h1>
       <p class="lead">Dein Style als Linien im Spiegel.</p>
+      <div id="templateChips" class="chips" role="group" aria-label="Vorlage wählen"></div>
       <button id="startBtn" class="primary" type="button">Kamera starten</button>
       <button id="editorBtn" class="secondary" type="button">Style anpassen</button>
       <p id="styleState" class="hint" role="status" hidden></p>
@@ -43,7 +44,7 @@
     <section id="editor" class="editor" hidden>
       <header class="editor-top">
         <button id="editorBack" class="ghost small" type="button">‹ Zurück</button>
-        <span class="brand">Linien-Editor</span>
+        <span id="editorTitle" class="brand">Linien-Editor</span>
         <button id="doneBtn" class="ghost small accent" type="button" disabled>Fertig</button>
       </header>
 
@@ -88,6 +89,6 @@
     </section>
   </main>
 
-  <script type="module" src="app.js?v=13"></script>
+  <script type="module" src="app.js?v=14"></script>
 </body>
 </html>

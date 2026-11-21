@@ -20,7 +20,7 @@
 //
 // Das Ergebnis ist ein Vorschlag, den der Nutzer prüft und nachzieht.
 
-import { delaunay, locate, sagittalFrame, signedDistance } from "./geometry.js?v=13";
+import { delaunay, locate, sagittalFrame, signedDistance } from "./geometry.js?v=14";
 
 const RING = [57, 186, 92, 165, 167, 164, 393, 391, 322, 410, 287]; // Ring über der Oberlippe
 const LIP_UP = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291]; // Oberkante Oberlippe
