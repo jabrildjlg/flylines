@@ -82,6 +82,31 @@ Wünsche des Nutzers vom 21.11.2026 (gelten für alle weiteren Schritte):
 
 Startlinien in Schritt 5: Standardformen für Schnauzer, Goatee und Augenbrauen, an Landmarks verankert, die der Nutzer auf dem Vorzeigebild zurechtzieht. Eine automatische Erkennung der Bartkanten nur ausprobieren und nur behalten, wenn sie zuverlässig bessere Startlinien liefert.
 
+## Aktueller Abschnitt: Bartkontur aus den Fotos (Stand 21.11.2026)
+
+Die Entwicklung dieses Abschnitts läuft ab jetzt im Terminal auf dem Computer des Nutzers (Windows), weil dort die echte Gesichtserkennung auf den echten Testfotos laufen kann. Vorher wurde blind entwickelt. Der volle Recherche-Bericht liegt in `docs/recherche-bartkontur.md`.
+
+Ergebnis der Recherche in Kürze:
+
+- Kein fertiges Browser-Modell hat eine Bart-Klasse. Die Bartkante ist auch für Menschen unscharf (zwei Annotatoren: rund 78 % Überlappung).
+- Zielbild: Vorlage führt, Modell hilft, Nutzer entscheidet. Ein Modell liefert die grobe Bartfläche, `analyze.js` zieht Punkte nur noch in einem schmalen Band an die Kante, der Nutzer korrigiert und gibt frei.
+- Erster Kandidat: MediaPipe `InteractiveSegmenter` in der neuen Fassung (in `@mediapipe/tasks-vision` 1.2.3 enthalten: `setImage(image)`, dann `segment(strokes)` mit `BrushMode` POSITIVE/NEGATIVE/LASSO; Modell `interactive_segmentation.task`, 30,5 MB, Eingabe 768×768). Zweiter Kandidat: Selfie-Multiclass (16,4 MB), falls es Bart als «Haar» einordnet. Ob eines davon einen Bart trifft, ist nirgends belegt und muss gemessen werden.
+- Rückfall: SlimSAM über Transformers.js (auf dem iPhone nur WASM, wegen eines offenen WebKit-Speicherfehlers mit WebGPU), danach eigenes kleines Modell auf FaceSynthetics.
+- Nicht verfolgen: KI-Sprachmodell für Koordinaten (ungenau, bräuchte Schlüssel), volles 3D-Kopfmodell.
+
+Vom Nutzer vorgeschlagener Ablauf, der unabhängig vom Modell funktioniert und zuerst fertig werden soll:
+
+1. Fotos von vorn und von beiden Seiten laden.
+2. Punkte mit Zoom genau setzen, mit so vielen Punkten wie nötig (Startform oder Analyse-Vorschlag als Ausgangslage).
+3. Fertiges Ergebnis zur Freigabe zeigen: alle Fotos mit der feinen Linie ohne Punkte, dazu «Passt» und «Zurück zum Bearbeiten». Erst nach «Passt» gilt der Style als fertig.
+
+Reihenfolge der Aufgaben (wie immer: eine Aufgabe, dann stoppen und den Nutzer testen lassen):
+
+- A. Freigabe-Ansicht im Editor (Punkt 3 oben). Klein, ohne neues Modell.
+- B. Prüfstand ausserhalb der App: Testfotos in einem Ordner NEBEN dem Repository (nie einchecken, das Repository ist öffentlich), von Hand gezogene Soll-Konturen, ein Skript, das eine Variante in einem ferngesteuerten Browser mit echtem MediaPipe durchrechnet, Überlagerungsbilder schreibt und den mittleren Abstand zur Soll-Kontur in Prozent der Gesichtsbreite ausgibt. Werkzeuge des Prüfstands dürfen Node und Pakete benutzen; die ausgelieferte App bleibt ohne Build-Schritt.
+- C. Kandidaten messen: heutige Farb-Analyse, Interactive Segmenter (ganzes Foto und Ausschnitt der unteren Gesichtshälfte, Striche aus Landmarks), Selfie-Multiclass. Ergebnis mit Bildern und Zahlen berichten, noch nichts in die App einbauen.
+- D. Den Gewinner als Flächenfinder vor `analyze.js` setzen. Modell erst bei «Analysieren» laden und danach freigeben.
+
 ## Machbarkeits-Check (Schritt 9)
 
 Regelbasiert, ohne KI. Vergleicht Profil mit den Anforderungen des Styles.
@@ -122,7 +147,7 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
     - Zweites «Analysieren» nach eigenen Änderungen erfindet nichts neu: Jeder Punkt wird nur an die nächste Bartkante innerhalb von 3,5 % der Gesichtsbreite gezogen (Feinabgleich). «Zurücksetzen» beginnt neu.
   - Editor: mehrere Fotos auf einmal wählbar; beim Ziehen werden die anderen Punkte ausgeblendet; «Spiegeln» überträgt die zuletzt bearbeitete oder angetippte Seite; «Form löschen» entfernt eine ganze Form. Gruppen sind jetzt «Bart» und «Brauen».
   - Zoom im Editor: zwei Finger zoomen (bis 6×) und verschieben, ein Finger auf freier Fläche verschiebt, Knopf «Zoom» schaltet 1× → 2× → 4× → 1×. Umsetzung über CSS-Transform der Zeichenfläche; die Lupe bleibt im sichtbaren Ausschnitt.
-  - Vierte Runde am iPhone: Die Farb-Analyse trifft den Schnauzer brauchbar, läuft aber unter dem Mund auf der Schattenseite aus (mehrere überlappende Formen bis zur Wange). Der Nutzer beurteilt sie als nicht gut genug. Darum läuft eine Recherche nach einem modellbasierten Verfahren (Notizen ausserhalb des Repositories).
+  - Vierte Runde am iPhone: Die Farb-Analyse trifft den Schnauzer brauchbar, läuft aber unter dem Mund auf der Schattenseite aus (mehrere überlappende Formen bis zur Wange). Der Nutzer beurteilt sie als nicht gut genug. Die Recherche dazu ist abgeschlossen, siehe Abschnitt «Aktueller Abschnitt: Bartkontur aus den Fotos».
   - Testbilder des Nutzers (frontal, Profil links, Profil rechts, je 1122×1402) liegen lokal ausserhalb des Repositories und dürfen nicht eingecheckt werden.
   - Offene Wünsche des Nutzers: Der Style soll sich an seinen Kopf anpassen statt 1:1 übernommen zu werden (gehört zu Schritt 6: Feinjustierung auf dem eigenen Gesicht). Augenbrauen werden noch nicht analysiert.
 - Inhalt von Schritt 5:
@@ -141,4 +166,4 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
   - Editor und Live-Spiegel benutzen dasselbe Style-Objekt im Speicher; gespeichert wird noch nichts (Schritt 7).
 - Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds, `?verdeckt=0` das Ausblenden der abgewandten Seite. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
 - Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Bildschirme), `tracker.js` (MediaPipe), `lines.js` (Linien), `editor.js` (Editor), `geometry.js` (Dreiecksnetz, Spiegelung), `analyze.js` (Bart-Analyse). Bei jeder Änderung die Versionsnummer `?v=` in `index.html` und in den `import`-Zeilen erhöhen, sonst lädt Safari alte Dateien.
-- Nächster Schritt nach bestandenem Test: 6 (Gesichtsscan und Fixieren).
+- Nächste Aufgabe: A aus dem Abschnitt «Aktueller Abschnitt: Bartkontur aus den Fotos». Schritt 6 (Gesichtsscan und Fixieren) folgt, sobald der Nutzer einen Style freigegeben hat.
