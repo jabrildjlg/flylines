@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <main id="app">
@@ -26,7 +26,7 @@
       <h1>FlyLines</h1>
       <p class="lead">Dein Style als Linien im Spiegel.</p>
       <button id="startBtn" class="primary" type="button">Kamera starten</button>
-      <button id="editorBtn" class="secondary" type="button">Linien-Editor</button>
+      <button id="editorBtn" class="secondary" type="button">Style anpassen</button>
       <p id="message" class="message" role="alert" hidden></p>
       <p class="hint">Das Kamerabild bleibt auf deinem Gerät.</p>
     </section>
@@ -35,8 +35,9 @@
     <p id="notice" class="notice" role="status" hidden></p>
 
     <footer class="bottombar" id="controls" hidden>
+      <button id="stopBtn" class="ghost" type="button">‹ Menü</button>
+      <button id="viewBtn" class="ghost" type="button">Ansicht: Zone</button>
       <button id="dotsBtn" class="ghost" type="button">Punkte ein</button>
-      <button id="stopBtn" class="ghost" type="button">Kamera stoppen</button>
     </footer>
     <!-- Linien-Editor: Linien auf einem Foto bearbeiten -->
     <section id="editor" class="editor" hidden>
@@ -48,14 +49,19 @@
 
       <div id="editorStage" class="editor-stage">
         <canvas id="editorCanvas" width="0" height="0"></canvas>
-        <p id="editorMessage" class="editor-message" role="status">Wähle ein Foto, auf dem das Gesicht gross und gut beleuchtet ist.</p>
+        <p id="editorMessage" class="editor-message" role="status">Wähle bis zu drei Fotos deines Vorzeige-Styles: am besten eines von vorn und je eines von der Seite.</p>
       </div>
 
-      <p id="editorHint" class="editor-hint" hidden>Punkt ziehen · Punkt antippen, dann «Punkt +» oder «Punkt löschen»</p>
+      <p id="editorHint" class="editor-hint" hidden>Punkt ziehen · auf die Linie tippen = neuer Punkt · Spiegeln: linke Bildhälfte → rechte</p>
+
+      <div class="chiprow">
+        <div id="photoTabs" class="chips"></div>
+        <div id="groupChips" class="chips"></div>
+      </div>
 
       <footer class="editor-tools">
         <label class="ghost small filebtn">
-          Foto wählen
+          <span id="photoLabel">Foto wählen</span>
           <input id="photoInput" class="visually-hidden" type="file" accept="image/*">
         </label>
         <button id="addBtn" class="ghost small" type="button" disabled>Punkt +</button>
@@ -66,6 +72,6 @@
     </section>
   </main>
 
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>

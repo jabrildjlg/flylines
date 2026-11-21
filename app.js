@@ -1,8 +1,8 @@
-// FlyLines – Bauschritt 4: Live-Spiegel mit Linien und Linien-Editor auf einem Foto.
+// FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=6";
-import { TEST_STYLE, StyleSmoother, projectLine, drawLine } from "./lines.js?v=6";
-import { createEditor } from "./editor.js?v=6";
+import { createTracker } from "./tracker.js?v=7";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine, drawLine, drawZones } from "./lines.js?v=7";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=7";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -15,6 +15,7 @@ const message = document.getElementById("message");
 const statusEl = document.getElementById("status");
 const notice = document.getElementById("notice");
 const dotsBtn = document.getElementById("dotsBtn");
+const viewBtn = document.getElementById("viewBtn");
 
 // Mit ?cpu=1 in der Adresse lässt sich die Grafikkarte zum Vergleich abschalten.
 const params = new URLSearchParams(location.search);
@@ -26,9 +27,11 @@ const syncFrames = params.get("sync") !== "0";
 
 // Der Style wird von Live-Spiegel und Editor gemeinsam benutzt.
 const cloneStyle = (s) => JSON.parse(JSON.stringify(s));
-const style = cloneStyle(TEST_STYLE);
+const style = cloneStyle(DEFAULT_STYLE);
 const smoother = new StyleSmoother({ minCutoff: 2, beta: 0.05 });
 let showDots = false;
+// Ansicht im Live-Spiegel: "zone" (roter Streifen ausserhalb der Form) oder "linie".
+let viewMode = "zone";
 
 let stream = null;
 let tracker = null;
@@ -92,16 +95,24 @@ function drawLandmarks(landmarks) {
   }
 }
 
-// Zeichnet alle Linien des Styles an ihre Stelle im Gesicht.
+// Zeichnet alle eingeschalteten Formen des Styles an ihre Stelle im Gesicht.
 function drawStyle(landmarks, timeMs) {
   const w = overlay.width;
   const h = overlay.height;
-  const width = Math.max(3, Math.min(w, h) / 160);
+  const hair = Math.max(1.5, Math.min(w, h) / 420); // Haarlinie
+  // Streifenbreite im Verhältnis zur Gesichtsbreite (rund 6 %, etwa 8 mm).
+  const faceWidth = Math.hypot((landmarks[454].x - landmarks[234].x) * w, (landmarks[454].y - landmarks[234].y) * h);
+  const band = faceWidth * 0.06;
+
+  const zones = [];
   for (const line of style.lines) {
+    if (line.enabled === false) continue;
     let pts = projectLine(line, landmarks, w, h);
     if (smoothing) pts = smoother.smooth(line.id, pts, timeMs);
-    drawLine(ctx, pts, { width });
+    if (viewMode === "zone" && line.closed) zones.push(pts);
+    else drawLine(ctx, pts, { width: hair, closed: line.closed });
   }
+  drawZones(ctx, zones, { band, width: hair });
 }
 
 // ---- Bildrate messen -------------------------------------------------------
@@ -307,6 +318,10 @@ function stopCamera() {
 
 startBtn.addEventListener("click", startCamera);
 stopBtn.addEventListener("click", stopCamera);
+viewBtn.addEventListener("click", () => {
+  viewMode = viewMode === "zone" ? "linie" : "zone";
+  viewBtn.textContent = viewMode === "zone" ? "Ansicht: Zone" : "Ansicht: Linie";
+});
 dotsBtn.addEventListener("click", () => {
   showDots = !showDots;
   dotsBtn.textContent = showDots ? "Punkte aus" : "Punkte ein";
@@ -318,12 +333,18 @@ video.addEventListener("loadedmetadata", resizeOverlay);
 const editorScreen = document.getElementById("editor");
 const editorMessage = document.getElementById("editorMessage");
 const editorHint = document.getElementById("editorHint");
+const photoTabs = document.getElementById("photoTabs");
+const groupChips = document.getElementById("groupChips");
+const photoLabel = document.getElementById("photoLabel");
 const addBtn = document.getElementById("addBtn");
 const deleteBtn = document.getElementById("deleteBtn");
 const mirrorBtn = document.getElementById("mirrorBtn");
 const resetBtn = document.getElementById("resetBtn");
 const photoInput = document.getElementById("photoInput");
 
+const groupEnabled = (key) => style.lines.some((l) => l.group === key && l.enabled !== false);
+
+// Baut die Foto-Reiter (1, 2, 3) und die Schalter für Schnauzer, Goatee, Brauen neu auf.
 function updateEditorButtons() {
   const ready = editor.hasPhoto();
   addBtn.disabled = !editor.hasSelection();
@@ -331,6 +352,34 @@ function updateEditorButtons() {
   mirrorBtn.disabled = !ready;
   resetBtn.disabled = !ready;
   editorHint.hidden = !ready;
+
+  const count = editor.photoCount();
+  photoLabel.textContent = count === 0 ? "Foto wählen" : count < MAX_PHOTOS ? "+ Foto" : "Foto ersetzen";
+
+  photoTabs.replaceChildren();
+  for (let i = 0; i < count; i++) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "chip" + (i === editor.currentPhoto() ? " on" : "");
+    tab.textContent = `Foto ${i + 1}`;
+    tab.addEventListener("click", () => editor.show(i));
+    photoTabs.append(tab);
+  }
+
+  groupChips.replaceChildren();
+  for (const group of GROUPS) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (groupEnabled(group.key) ? " on" : "");
+    chip.textContent = group.label;
+    chip.addEventListener("click", () => {
+      const on = !groupEnabled(group.key);
+      for (const line of style.lines) if (line.group === group.key) line.enabled = on;
+      editor.refresh();
+      updateEditorButtons();
+    });
+    groupChips.append(chip);
+  }
 }
 
 const editor = createEditor({
@@ -348,8 +397,8 @@ const editor = createEditor({
 document.getElementById("editorBtn").addEventListener("click", () => {
   if (stream) stopCamera();
   editorScreen.hidden = false;
-  editor.refresh();
   updateEditorButtons();
+  editor.refresh();
 });
 
 document.getElementById("editorBack").addEventListener("click", () => {
@@ -360,7 +409,7 @@ photoInput.addEventListener("change", async () => {
   const file = photoInput.files && photoInput.files[0];
   photoInput.value = ""; // dasselbe Foto soll sich erneut wählen lassen
   if (!file) return;
-  await editor.loadPhoto(file);
+  await editor.addPhoto(file);
   updateEditorButtons();
 });
 
@@ -368,7 +417,7 @@ addBtn.addEventListener("click", () => editor.addAfterSelected());
 deleteBtn.addEventListener("click", () => editor.deleteSelected());
 mirrorBtn.addEventListener("click", () => editor.mirror());
 resetBtn.addEventListener("click", () => {
-  style.lines = cloneStyle(TEST_STYLE).lines;
+  style.lines = cloneStyle(DEFAULT_STYLE).lines;
   editor.refresh();
   updateEditorButtons();
 });

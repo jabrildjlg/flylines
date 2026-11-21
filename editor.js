@@ -1,16 +1,18 @@
-// FlyLines – Linien-Editor: Linien auf einem Foto mit dem Finger bearbeiten.
+// FlyLines – Linien-Editor: die Formen eines Styles auf Fotos mit dem Finger anpassen.
 //
-// Punkte ziehen, auf die Linie tippen (neuer Punkt), Punkt löschen, spiegeln.
-// Jeder Punkt wird sofort als Anker im Gesichtsnetz gespeichert ({ tri, w }),
-// nie als Bildposition. Darum passt dieselbe Linie später auf das Live-Gesicht.
+// Bis zu drei Fotos (z. B. frontal und von beiden Seiten). Alle Fotos zeigen
+// dieselben Formen: Jeder Punkt wird als Anker im Gesichtsnetz gespeichert
+// ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
+// verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=6";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=6";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=7";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=7";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
 const MESH_POINTS = 468;
 const MAX_SIDE = 1600; // längste Bildseite in Pixeln
+export const MAX_PHOTOS = 3;
 
 /**
  * @param {object} o
@@ -23,64 +25,76 @@ const MAX_SIDE = 1600; // längste Bildseite in Pixeln
  */
 export function createEditor({ canvas, stage, style, getTracker, onMessage, onChange }) {
   const ctx = canvas.getContext("2d");
-  const photo = document.createElement("canvas"); // unverändertes Foto
 
-  let landmarks = null; // normalisierte Gesichtspunkte des Fotos
-  let pixels = null; // dieselben Punkte in Pixeln (nur Netzpunkte)
-  let tris = null; // Dreiecksnetz über pixels
-  let frame = null; // Spiegelebene
+  // Jedes Foto: { image, landmarks, pixels, tris, frame }
+  const photos = [];
+  let current = -1;
   let selected = null; // { line, point }
   let drag = null; // { pointerId, dx, dy }
 
-  const hasPhoto = () => Boolean(landmarks);
+  const photo = () => photos[current] || null;
+  const hasPhoto = () => current >= 0;
+  const visibleLines = () => style.lines.map((line, index) => ({ line, index })).filter((e) => e.line.enabled !== false);
+  const minPoints = (line) => (line.closed ? 3 : 2);
 
   // ---- Foto laden ------------------------------------------------------------
 
-  async function loadPhoto(file) {
+  async function addPhoto(file) {
     onMessage("Foto wird geladen …");
     let img;
     try {
       img = await decodeImage(file);
     } catch {
-      onMessage("Dieses Bild konnte nicht geöffnet werden.");
+      onMessage(hasPhoto() ? "" : "Dieses Bild konnte nicht geöffnet werden.");
       return false;
     }
+
+    // Verkleinerte Kopie für die Gesichtserkennung.
+    const probe = document.createElement("canvas");
     const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
-    photo.width = Math.round(img.width * scale);
-    photo.height = Math.round(img.height * scale);
-    photo.getContext("2d").drawImage(img, 0, 0, photo.width, photo.height);
+    probe.width = Math.round(img.width * scale);
+    probe.height = Math.round(img.height * scale);
+    probe.getContext("2d").drawImage(img, 0, 0, probe.width, probe.height);
 
     onMessage("Gesicht wird gesucht …");
     let face = null;
     try {
       const tracker = await getTracker();
-      face = await tracker.detectImage(photo);
+      face = await tracker.detectImage(probe);
     } catch (err) {
       console.error(err);
       onMessage("Das Gesichtstracking konnte nicht geladen werden. Prüfe die Internetverbindung.");
       return false;
     }
     if (!face) {
-      landmarks = null;
       onMessage("Auf diesem Foto wurde kein Gesicht gefunden. Wähle ein Foto, auf dem das Gesicht gross und gut beleuchtet ist.");
       return false;
     }
 
     // Auf das Gesicht zuschneiden, damit es den Bildschirm füllt und die Punkte
     // mit dem Finger gut zu treffen sind.
-    landmarks = cropToFace(img, face.landmarks);
-    const w = photo.width;
-    const h = photo.height;
-    pixels = landmarks.slice(0, MESH_POINTS).map((p) => ({ x: p.x * w, y: p.y * h, z: p.z * w }));
-    tris = delaunay(pixels);
-    frame = sagittalFrame(pixels);
-    selected = null;
+    const cropped = cropToFace(img, face.landmarks);
+    const w = cropped.image.width;
+    const pixels = cropped.landmarks
+      .slice(0, MESH_POINTS)
+      .map((p) => ({ x: p.x * w, y: p.y * cropped.image.height, z: p.z * w }));
+    const entry = {
+      image: cropped.image,
+      landmarks: cropped.landmarks,
+      pixels,
+      tris: delaunay(pixels),
+      frame: sagittalFrame(pixels),
+    };
 
-    canvas.width = w;
-    canvas.height = h;
-    fit();
-    render();
+    // Sind schon drei Fotos da, ersetzt das neue das gerade gezeigte.
+    if (photos.length < MAX_PHOTOS) {
+      photos.push(entry);
+      current = photos.length - 1;
+    } else {
+      photos[current] = entry;
+    }
     onMessage("");
+    show(current);
     return true;
   }
 
@@ -105,16 +119,18 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const ch = y1 - y0;
 
     const scale = Math.min(1, MAX_SIDE / Math.max(cw, ch));
-    photo.width = Math.max(1, Math.round(cw * scale));
-    photo.height = Math.max(1, Math.round(ch * scale));
-    photo.getContext("2d").drawImage(img, x0, y0, cw, ch, 0, 0, photo.width, photo.height);
+    const image = document.createElement("canvas");
+    image.width = Math.max(1, Math.round(cw * scale));
+    image.height = Math.max(1, Math.round(ch * scale));
+    image.getContext("2d").drawImage(img, x0, y0, cw, ch, 0, 0, image.width, image.height);
 
     // z ist wie x auf die Bildbreite bezogen und wird gleich umgerechnet.
-    return found.map((p) => ({
+    const landmarks = found.map((p) => ({
       x: (p.x * img.width - x0) / cw,
       y: (p.y * img.height - y0) / ch,
       z: (p.z * img.width) / cw,
     }));
+    return { image, landmarks };
   }
 
   function decodeImage(file) {
@@ -133,10 +149,24 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     });
   }
 
+  /** Zeigt das Foto mit der Nummer index. */
+  function show(index) {
+    if (index < 0 || index >= photos.length) return;
+    current = index;
+    selected = null;
+    drag = null;
+    canvas.width = photo().image.width;
+    canvas.height = photo().image.height;
+    fit();
+    render();
+    onChange();
+  }
+
   // Passt die Zeichenfläche in den verfügbaren Platz ein (Seitenverhältnis bleibt).
   function fit() {
     if (!canvas.width) return;
     const box = stage.getBoundingClientRect();
+    if (!box.width || !box.height) return;
     const scale = Math.min(box.width / canvas.width, box.height / canvas.height);
     canvas.style.width = `${Math.floor(canvas.width * scale)}px`;
     canvas.style.height = `${Math.floor(canvas.height * scale)}px`;
@@ -144,7 +174,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
 
   // ---- Umrechnen -------------------------------------------------------------
 
-  // Bildschirm-Pixel pro Zeichenflächen-Pixel umgekehrt: wie viele Zeichenflächen-Pixel ist 1 CSS-Pixel.
+  // Wie viele Zeichenflächen-Pixel einem Bildschirm-Pixel entsprechen.
   function unit() {
     const rect = canvas.getBoundingClientRect();
     return rect.width ? canvas.width / rect.width : 1;
@@ -158,16 +188,17 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     };
   }
 
-  const positionOf = (point) => projectPoint(point, landmarks, canvas.width, canvas.height);
-  const anchorAt = (x, y) => locate(tris, pixels, x, y);
+  const positionOf = (point) => projectPoint(point, photo().landmarks, canvas.width, canvas.height);
+  const anchorAt = (x, y) => locate(photo().tris, photo().pixels, x, y);
 
   function position3d(point) {
+    const px = photo().pixels;
     const [a, b, c] = point.tri;
     const [wa, wb, wc] = point.w;
     return {
-      x: wa * pixels[a].x + wb * pixels[b].x + wc * pixels[c].x,
-      y: wa * pixels[a].y + wb * pixels[b].y + wc * pixels[c].y,
-      z: wa * pixels[a].z + wb * pixels[b].z + wc * pixels[c].z,
+      x: wa * px[a].x + wb * px[b].x + wc * px[c].x,
+      y: wa * px[a].y + wb * px[b].y + wc * px[c].y,
+      z: wa * px[a].z + wb * px[b].z + wc * px[c].z,
     };
   }
 
@@ -179,25 +210,25 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const h = canvas.height;
     const u = unit();
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(photo, 0, 0);
+    ctx.drawImage(photo().image, 0, 0);
 
-    for (const line of style.lines) {
-      drawLine(ctx, projectLine(line, landmarks, w, h), { width: 3 * u });
+    for (const { line } of visibleLines()) {
+      drawLine(ctx, projectLine(line, photo().landmarks, w, h), { width: 1.5 * u, closed: line.closed });
     }
 
-    style.lines.forEach((line, li) => {
+    for (const { line, index } of visibleLines()) {
       line.points.forEach((point, pi) => {
         const p = positionOf(point);
-        const isSel = selected && selected.line === li && selected.point === pi;
+        const isSel = selected && selected.line === index && selected.point === pi;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, (isSel ? 9 : 6) * u, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, (isSel ? 9 : 5) * u, 0, Math.PI * 2);
         if (isSel) {
           // Gewählter Punkt als Ring, damit die genaue Stelle sichtbar bleibt.
-          ctx.lineWidth = 3 * u;
+          ctx.lineWidth = 2.5 * u;
           ctx.strokeStyle = "#ffffff";
           ctx.stroke();
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 1.5 * u, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, 1.2 * u, 0, Math.PI * 2);
           ctx.fillStyle = "#ffffff";
           ctx.fill();
         } else {
@@ -208,7 +239,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
           ctx.stroke();
         }
       });
-    });
+    }
 
     if (drag && selected) drawLoupe(positionOf(style.lines[selected.line].points[selected.point]), u);
   }
@@ -245,27 +276,29 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   function nearestHandle(p, maxDist) {
     let best = null;
     let bestDist = maxDist;
-    style.lines.forEach((line, li) => {
+    for (const { line, index } of visibleLines()) {
       line.points.forEach((point, pi) => {
         const q = positionOf(point);
         const d = Math.hypot(q.x - p.x, q.y - p.y);
         if (d < bestDist) {
           bestDist = d;
-          best = { line: li, point: pi };
+          best = { line: index, point: pi, dist: d };
         }
       });
-    });
+    }
     return best;
   }
 
   function nearestSegment(p, maxDist) {
     let best = null;
     let bestDist = maxDist;
-    style.lines.forEach((line, li) => {
+    for (const { line, index } of visibleLines()) {
       const pts = line.points.map(positionOf);
-      for (let i = 0; i < pts.length - 1; i++) {
+      const n = pts.length;
+      const segments = line.closed ? n : n - 1;
+      for (let i = 0; i < segments; i++) {
         const a = pts[i];
-        const b = pts[i + 1];
+        const b = pts[(i + 1) % n];
         const abx = b.x - a.x;
         const aby = b.y - a.y;
         const len2 = abx * abx + aby * aby || 1;
@@ -273,10 +306,10 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
         const d = Math.hypot(a.x + t * abx - p.x, a.y + t * aby - p.y);
         if (d < bestDist) {
           bestDist = d;
-          best = { line: li, after: i };
+          best = { line: index, after: i };
         }
       }
-    });
+    }
     return best;
   }
 
@@ -287,19 +320,21 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const p = toCanvas(e);
     const u = unit();
 
-    let hit = nearestHandle(p, 20 * u);
-    if (hit) {
-      const q = positionOf(style.lines[hit.line].points[hit.point]);
+    // Nah an einem Punkt: diesen Punkt greifen. Sonst auf der Linie: neuen Punkt
+    // einfügen. Sonst, wenn ein Punkt in Reichweite ist: diesen greifen.
+    const handle = nearestHandle(p, 22 * u);
+    const seg = nearestSegment(p, 14 * u);
+    let hit = null;
+    if (handle && (handle.dist <= 11 * u || !seg)) {
+      const q = positionOf(style.lines[handle.line].points[handle.point]);
+      hit = { line: handle.line, point: handle.point };
       drag = { pointerId: e.pointerId, dx: q.x - p.x, dy: q.y - p.y };
-    } else {
-      const seg = nearestSegment(p, 18 * u);
-      if (seg) {
-        const anchor = anchorAt(p.x, p.y);
-        if (anchor) {
-          style.lines[seg.line].points.splice(seg.after + 1, 0, anchor);
-          hit = { line: seg.line, point: seg.after + 1 };
-          drag = { pointerId: e.pointerId, dx: 0, dy: 0 };
-        }
+    } else if (seg) {
+      const anchor = anchorAt(p.x, p.y);
+      if (anchor) {
+        style.lines[seg.line].points.splice(seg.after + 1, 0, anchor);
+        hit = { line: seg.line, point: seg.after + 1 };
+        drag = { pointerId: e.pointerId, dx: 0, dy: 0 };
       }
     }
 
@@ -335,7 +370,9 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   // ---- Aktionen --------------------------------------------------------------
 
   function canDelete() {
-    return Boolean(selected) && style.lines[selected.line].points.length > 2;
+    if (!selected) return false;
+    const line = style.lines[selected.line];
+    return line.points.length > minPoints(line);
   }
 
   function deleteSelected() {
@@ -351,71 +388,96 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   function addAfterSelected() {
     if (!selected) return;
     const line = style.lines[selected.line];
+    const n = line.points.length;
     const i = selected.point;
-    const j = i < line.points.length - 1 ? i + 1 : i - 1;
+    let j = i + 1;
+    if (j >= n) j = line.closed ? 0 : i - 1;
     if (j < 0) return;
     const a = positionOf(line.points[i]);
     const b = positionOf(line.points[j]);
     const anchor = anchorAt((a.x + b.x) / 2, (a.y + b.y) / 2);
     if (!anchor) return;
-    const at = Math.max(i, j);
+    const at = j === i - 1 ? i : i + 1;
     line.points.splice(at, 0, anchor);
     selected = { line: selected.line, point: at };
     render();
     onChange();
   }
 
-  // Spiegelt die im Bild linke Hälfte jeder Linie auf die rechte.
-  // Liegt eine Linie ganz auf einer Seite, entsteht auf der anderen eine Partnerlinie.
+  // Spiegelt die im Bild linke Hälfte jeder sichtbaren Form auf die rechte.
+  // Formen über der Gesichtsmitte (Schnauzer, Goatee) werden symmetrisch.
+  // Formen ganz auf der linken Seite (eine Braue) überschreiben ihre Partnerform.
   function mirror() {
     if (!hasPhoto()) return;
+    const frame = photo().frame;
     const eps = frame.faceWidth * 0.015; // so nah an der Mitte gilt ein Punkt als «auf der Mitte»
+
+    const mirrorPoint = (point) => {
+      const r = reflect(frame, position3d(point));
+      return anchorAt(r.x, r.y);
+    };
     const snapToMiddle = (point) => {
       const p = position3d(point);
       const d = signedDistance(frame, p);
       return anchorAt(p.x - d * frame.n.x, p.y - d * frame.n.y) || point;
     };
-    const mirrorPoint = (point) => {
-      const r = reflect(frame, position3d(point));
-      return anchorAt(r.x, r.y);
+    const sideOf = (point) => {
+      const d = signedDistance(frame, position3d(point));
+      return Math.abs(d) < eps ? 0 : Math.sign(d) * frame.leftSign; // 1 = im Bild links
     };
 
-    const result = [];
-    for (const line of style.lines) {
-      if (line.mirrorOf) continue; // Partnerlinien werden neu erzeugt
-      const sides = line.points.map((point) => {
-        const d = signedDistance(frame, position3d(point));
-        return Math.abs(d) < eps ? 0 : Math.sign(d) * frame.leftSign; // 1 = im Bild links
-      });
-      const crossing = sides.includes(0) || (sides.includes(1) && sides.includes(-1));
+    for (const { line } of visibleLines()) {
+      const sides = line.points.map(sideOf);
+      const hasLeft = sides.includes(1);
+      const hasRight = sides.includes(-1);
 
-      if (!crossing) {
-        result.push(line);
-        result.push({
-          id: `${line.id}~gespiegelt`,
-          area: line.area,
-          mirrorOf: line.id,
-          points: line.points.map(mirrorPoint).filter(Boolean),
-        });
+      if (hasLeft && !hasRight && !sides.includes(0)) {
+        // Ganz links: Partnerform auf der rechten Seite neu setzen.
+        const points = line.points.map(mirrorPoint).filter(Boolean);
+        if (points.length < minPoints(line)) continue;
+        let partner = style.lines.find((l) => l.id === line.partner);
+        if (!partner) {
+          partner = { ...line, id: `${line.id}~gespiegelt`, partner: line.id, points: [] };
+          line.partner = partner.id;
+          style.lines.push(partner);
+        }
+        partner.points = points;
         continue;
       }
+      if (!hasLeft) continue; // ganz rechts oder nur auf der Mitte: nichts zu spiegeln
 
+      // Über der Mitte: linke Hälfte behalten, rechte aus ihr neu aufbauen.
+      const n = sides.length;
+      let start = 0;
+      if (line.closed) {
+        for (let i = 0; i < n; i++) {
+          if (sides[i] >= 0 && sides[(i - 1 + n) % n] < 0) {
+            start = i;
+            break;
+          }
+        }
+      }
       const keep = [];
       const mirrored = [];
-      line.points.forEach((point, i) => {
-        if (sides[i] < 0) return;
-        keep.push(sides[i] === 0 ? snapToMiddle(point) : point);
+      for (let k = 0; k < n; k++) {
+        const i = (start + k) % n;
+        if (sides[i] < 0) {
+          if (line.closed) break;
+          continue;
+        }
+        keep.push(sides[i] === 0 ? snapToMiddle(line.points[i]) : line.points[i]);
         if (sides[i] === 1) {
-          const m = mirrorPoint(point);
+          const m = mirrorPoint(line.points[i]);
           if (m) mirrored.push(m);
         }
-      });
+      }
       mirrored.reverse();
-      const startsOnSource = sides[0] >= 0;
-      result.push({ ...line, points: startsOnSource ? keep.concat(mirrored) : mirrored.concat(keep) });
+      // Offene Linie, die rechts beginnt: die gespiegelten Punkte gehören an den Anfang.
+      const mirroredFirst = !line.closed && sides[0] < 0;
+      const points = mirroredFirst ? mirrored.concat(keep) : keep.concat(mirrored);
+      if (points.length >= minPoints(line)) line.points = points;
     }
 
-    style.lines = result.filter((line) => line.points.length >= 2);
     selected = null;
     render();
     onChange();
@@ -433,7 +495,10 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   });
 
   return {
-    loadPhoto,
+    addPhoto,
+    show,
+    photoCount: () => photos.length,
+    currentPhoto: () => current,
     deleteSelected,
     canDelete,
     addAfterSelected,

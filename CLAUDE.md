@@ -74,6 +74,12 @@ Ausgangsfall: Schnauzer und Goatee nach einem Vorzeigebild.
 
 Schritt 3 ist der kritische Punkt. Sitzt die Testlinie dort nicht stabil genug, zuerst Glättung und Verankerung verbessern, bevor weitere Funktionen dazukommen.
 
+Wünsche des Nutzers vom 21.11.2026 (gelten für alle weiteren Schritte):
+
+- Gebraucht werden Formen für Bart, Augenbrauen und Haaransätze (Koteletten, Stirn, Schläfen). Die Haaransätze kommen in Schritt 11 und sind dem Nutzer wichtig.
+- Bis zu drei Fotos pro Style aus verschiedenen Winkeln, damit auch Ecken und Abschlüsse des Barts sichtbar sind.
+- Die Anzeige muss sich zum Nachschneiden eignen: Die Schnittkante darf nicht von einer dicken Linie verdeckt sein.
+
 Startlinien in Schritt 5: Standardformen für Schnauzer, Goatee und Augenbrauen, an Landmarks verankert, die der Nutzer auf dem Vorzeigebild zurechtzieht. Eine automatische Erkennung der Bartkanten nur ausprobieren und nur behalten, wenn sie zuverlässig bessere Startlinien liefert.
 
 ## Machbarkeits-Check (Schritt 9)
@@ -103,15 +109,23 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
   - Das `<video>` nie direkt zeigen, sonst ziehen die Linien nach. Pro Bild: Kamerabild auf die Zeichenfläche kopieren, unmittelbar danach erkennen, Linien darüber.
   - Die Erkennung muss direkt vom `<video>` lesen. Von der 2D-Zeichenfläche gelesen fiel die Bildrate in Safari auf etwa 15 FPS.
   - 33 ms pro Bild sind knapp am Takt der Kamera (30 Bilder pro Sekunde). Falls spätere Schritte die Bildrate unter 20 drücken: zuerst die Kopie des Kamerabilds verkleinern.
-- Schritt 4 gebaut (Linien-Editor auf einem Foto). Wartet auf den Test am iPhone.
+- Schritt 4 bestanden (iPhone-Test am 21.11.2026): Punkte ziehen, Lupe, Hinzufügen, Löschen und Spiegeln funktionieren. Rückmeldung: Antippen der Linie fügte bei dicht liegenden Punkten keinen Punkt ein; aus dem Kameramodus fehlte ein klarer Weg zurück.
+- Schritt 5 gebaut, erweitert um die Wünsche oben. Wartet auf den Test am iPhone. Inhalt:
+  - `DEFAULT_STYLE` in `lines.js`: geschlossene Startformen für Schnauzer, Goatee und beide Augenbrauen. Die Landmark-Nummern stammen aus dem Gedächtnis und sind erst durch den Test des Nutzers bestätigt, wenn er die Formen an der richtigen Stelle sieht.
+  - Linien-Modell erweitert: `closed`, `enabled`, `group` (schnauzer, goatee, brauen), `partner` (linke und rechte Braue).
+  - Ansicht «Zone» im Live-Spiegel (Standard): Die Form bleibt frei, direkt ausserhalb liegt ein roter Streifen (rund 6 % der Gesichtsbreite), die Schnittkante ist eine Haarlinie. Grund: Beim Nachschneiden muss der Bart in der Form und die Kante selbst unverdeckt sichtbar sein. Umschaltbar auf «Linie».
+  - Editor mit bis zu drei Fotos (Reiter «Foto 1–3»). Alle Fotos zeigen dieselben Formen, weil die Punkte im Gesichtsnetz verankert sind. Schalter für Schnauzer, Goatee, Brauen.
+  - Antippen: näher als 11 Bildschirm-Pixel an einem Punkt greift den Punkt, sonst fügt ein Tipp auf die Linie einen Punkt ein.
+  - Live-Spiegel: Knopf «‹ Menü» statt «Kamera stoppen».
+  - Nicht gebaut: automatische Erkennung der Bartkanten im Foto. Der Nutzer zieht die Startformen von Hand zurecht.
 - MediaPipe: `@mediapipe/tasks-vision` Version 1.2.3, in `tracker.js` fest eingetragen. Bibliothek, WASM und Modell werden vorerst aus dem Netz geladen (jsDelivr, Modell von Hugging Face bzw. Google Storage). Liegt das Modell unter `models/face_landmarker.task`, wird es automatisch von dort genommen. Für Schritt 12 (offline) müssen Bibliothek, WASM und Modell ins Repository.
-- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `TEST_STYLE` ist nur die Testlinie und wird in Schritt 5 durch echte Styles ersetzt.
+- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `drawZones` zeichnet die Ansicht «Zone».
 - Editor (`editor.js`, `geometry.js`):
   - Foto wird nach der Gesichtserkennung auf das Gesicht zugeschnitten (Rand für Hals, Ohren, Haaransatz).
   - Anker eines Punkts: Delaunay-Triangulation der 468 Netzpunkte des Fotos (Iris-Punkte 468–477 ausgeschlossen, sie bewegen sich mit dem Blick), dann baryzentrische Gewichte. Ausserhalb des Netzes: nächstes Dreieck, Gewichte dürfen negativ sein.
-  - Bedienung: Punkt ziehen (mit Lupe), Linie antippen oder «Punkt +» für neuen Punkt, «Punkt löschen», «Spiegeln», «Zurücksetzen».
-  - Spiegeln rechnet in 3D an der Gesichtsmitte (Ebene aus den Paaren 33/263, 133/362, 61/291, 234/454 und Mittellinien-Punkten), nicht über eine Tabelle von Landmark-Paaren. Die im Bild linke Hälfte ist die Quelle. Linien ganz auf einer Seite bekommen eine Partnerlinie (`mirrorOf`).
+  - Bedienung: Punkt ziehen (mit Lupe), Linie antippen oder «Punkt +» für neuen Punkt, «Punkt löschen», «Spiegeln», «Zurücksetzen» (stellt die Startformen wieder her).
+  - Spiegeln rechnet in 3D an der Gesichtsmitte (Ebene aus den Paaren 33/263, 133/362, 61/291, 234/454 und Mittellinien-Punkten), nicht über eine Tabelle von Landmark-Paaren. Die im Bild linke Hälfte ist die Quelle. Formen über der Mitte werden symmetrisch neu aufgebaut; Formen ganz auf der linken Seite überschreiben ihre Partnerform (`partner`).
   - Editor und Live-Spiegel benutzen dasselbe Style-Objekt im Speicher; gespeichert wird noch nichts (Schritt 7).
 - Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
 - Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Bildschirme), `tracker.js` (MediaPipe), `lines.js` (Linien), `editor.js` (Editor), `geometry.js` (Dreiecksnetz, Spiegelung). Bei jeder Änderung die Versionsnummer `?v=` in `index.html` und in den `import`-Zeilen erhöhen, sonst lädt Safari alte Dateien.
-- Nächster Schritt nach bestandenem Test: 5 (Style aus Vorzeigebild).
+- Nächster Schritt nach bestandenem Test: 6 (Gesichtsscan und Fixieren).
