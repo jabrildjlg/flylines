@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FlyLines">
+  <title>FlyLines</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <!-- Kamerabild, gespiegelt wie ein Spiegel -->
+    <video id="camera" playsinline muted autoplay></video>
+    <!-- Zeichenfläche für die Linien (ab Schritt 3 genutzt) -->
+    <canvas id="overlay"></canvas>
+
+    <header class="topbar">
+      <span class="brand">FlyLines</span>
+      <span id="status" class="status" hidden></span>
+    </header>
+
+    <section id="start" class="panel">
+      <h1>FlyLines</h1>
+      <p class="lead">Dein Style als Linien im Spiegel.</p>
+      <button id="startBtn" class="primary" type="button">Kamera starten</button>
+      <p id="message" class="message" role="alert" hidden></p>
+      <p class="hint">Das Kamerabild bleibt auf deinem Gerät.</p>
+    </section>
+
+    <footer class="bottombar" id="controls" hidden>
+      <button id="stopBtn" class="ghost" type="button">Kamera stoppen</button>
+    </footer>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
