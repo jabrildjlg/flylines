@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <main id="app">
@@ -27,6 +27,7 @@
       <p class="lead">Dein Style als Linien im Spiegel.</p>
       <button id="startBtn" class="primary" type="button">Kamera starten</button>
       <button id="editorBtn" class="secondary" type="button">Style anpassen</button>
+      <p id="styleState" class="hint" role="status" hidden></p>
       <p id="message" class="message" role="alert" hidden></p>
       <p class="hint">Das Kamerabild bleibt auf deinem Gerät.</p>
     </section>
@@ -43,7 +44,7 @@
       <header class="editor-top">
         <button id="editorBack" class="ghost small" type="button">‹ Zurück</button>
         <span class="brand">Linien-Editor</span>
-        <span class="spacer"></span>
+        <button id="doneBtn" class="ghost small accent" type="button" disabled>Fertig</button>
       </header>
 
       <div id="editorStage" class="editor-stage">
@@ -72,8 +73,21 @@
         <button id="resetBtn" class="ghost small" type="button" disabled>Zurücksetzen</button>
       </footer>
     </section>
+
+    <!-- Freigabe: alle Fotos mit der feinen Linie ohne Punkte -->
+    <section id="review" class="editor review" hidden>
+      <header class="editor-top">
+        <span class="brand">Freigabe</span>
+      </header>
+      <p class="editor-hint">Sitzt die Linie auf allen Fotos an der Schnittkante?</p>
+      <div id="reviewList" class="review-list"></div>
+      <footer class="editor-tools">
+        <button id="reviewBack" class="ghost" type="button">Zurück zum Bearbeiten</button>
+        <button id="reviewOk" class="ghost accent" type="button">Passt</button>
+      </footer>
+    </section>
   </main>
 
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

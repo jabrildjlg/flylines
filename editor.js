@@ -5,9 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=10";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=10";
-import { analyzeBeard } from "./analyze.js?v=10";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=11";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=11";
+import { analyzeBeard } from "./analyze.js?v=11";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
@@ -710,6 +710,47 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     edited = false;
   }
 
+  // ---- Freigabe --------------------------------------------------------------
+
+  /**
+   * Zeichnet alle geladenen Fotos untereinander in den Behälter, jedes mit den
+   * eingeschalteten Formen als feine Linie ohne Punkte und ohne dunklen Rand.
+   * Der Behälter muss sichtbar sein, weil die Grösse von ihm abgelesen wird.
+   */
+  function renderReview(container) {
+    clearReview(container);
+    const boxW = container.clientWidth;
+    const boxH = container.clientHeight - 28; // Platz für die Beschriftung
+    photos.forEach((p, i) => {
+      const view = document.createElement("canvas");
+      const w = (view.width = p.image.width);
+      const h = (view.height = p.image.height);
+      // Jedes Foto so gross wie möglich; ein einzelnes passt ohne Scrollen.
+      const scale = Math.min(boxW / w, boxH / h);
+      view.style.width = `${Math.floor(w * scale)}px`;
+      view.style.height = `${Math.floor(h * scale)}px`;
+
+      const c = view.getContext("2d");
+      c.drawImage(p.image, 0, 0);
+      for (const { line } of visibleLines()) {
+        drawLine(c, projectLine(line, p.landmarks, w, h), { width: 1.5 / scale, closed: line.closed, halo: false });
+      }
+
+      const figure = document.createElement("figure");
+      const caption = document.createElement("figcaption");
+      caption.textContent = `Foto ${i + 1}`;
+      figure.append(view, caption);
+      container.append(figure);
+    });
+    container.scrollTop = 0;
+  }
+
+  /** Gibt den Bildspeicher der Freigabe-Ansicht wieder frei. */
+  function clearReview(container) {
+    for (const view of container.querySelectorAll("canvas")) view.width = view.height = 0;
+    container.replaceChildren();
+  }
+
   function refresh() {
     selected = null;
     fit();
@@ -737,6 +778,8 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     analyze,
     zoomLevel: () => zoom,
     setZoom,
+    renderReview,
+    clearReview,
     refresh,
     hasPhoto,
   };

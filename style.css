@@ -198,7 +198,32 @@ button {
   padding: 10px 12px;
 }
 
-.editor-top .spacer { width: 76px; }
+/* ---- Freigabe-Ansicht ---- */
+
+.review { z-index: 6; }
+.review .editor-top { justify-content: center; }
+.review .editor-hint { padding: 0 12px 8px; }
+
+.review-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.review-list figure { margin: 0; }
+.review-list canvas { display: block; }
+
+.review-list figcaption {
+  padding-top: 4px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
 
 .editor-stage {
   position: relative;

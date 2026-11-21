@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=10";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=10";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=10";
+import { createTracker } from "./tracker.js?v=11";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=11";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=11";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -337,6 +337,24 @@ const resetBtn = document.getElementById("resetBtn");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const photoInput = document.getElementById("photoInput");
 
+const doneBtn = document.getElementById("doneBtn");
+const reviewScreen = document.getElementById("review");
+const reviewList = document.getElementById("reviewList");
+const styleState = document.getElementById("styleState");
+
+// Freigabe: Bei «Passt» wird ein Abdruck der Linien gemerkt. Der Style gilt nur
+// als fertig, solange die Linien genau diesem Abdruck entsprechen; jede spätere
+// Änderung (Ziehen, Spiegeln, Analysieren, Zurücksetzen) hebt die Freigabe auf.
+let approvedLines = null;
+const isApproved = () => approvedLines !== null && approvedLines === JSON.stringify(style.lines);
+
+function updateStyleState() {
+  styleState.hidden = approvedLines === null;
+  styleState.textContent = isApproved()
+    ? "✓ Style freigegeben."
+    : "Style seit der Freigabe geändert. Im Editor mit «Fertig» neu freigeben.";
+}
+
 const groupEnabled = (key) => style.lines.some((l) => l.group === key && l.enabled !== false);
 
 // Baut die Foto-Reiter (1, 2, 3) und die Schalter für Schnauzer, Goatee, Brauen neu auf.
@@ -350,6 +368,8 @@ function updateEditorButtons() {
   mirrorBtn.disabled = !ready;
   resetBtn.disabled = !ready;
   analyzeBtn.disabled = !ready;
+  doneBtn.disabled = !ready;
+  doneBtn.textContent = isApproved() ? "Fertig ✓" : "Fertig";
   editorHint.hidden = !ready;
 
   const count = editor.photoCount();
@@ -405,6 +425,37 @@ document.getElementById("editorBtn").addEventListener("click", () => {
 
 document.getElementById("editorBack").addEventListener("click", () => {
   editorScreen.hidden = true;
+  updateStyleState();
+});
+
+// ---- Freigabe-Ansicht ----------------------------------------------------------
+
+function closeReview() {
+  reviewScreen.hidden = true;
+  editor.clearReview(reviewList);
+}
+
+doneBtn.addEventListener("click", () => {
+  reviewScreen.hidden = false; // zuerst zeigen, die Grösse wird vom Bildschirm abgelesen
+  editor.renderReview(reviewList);
+});
+
+document.getElementById("reviewBack").addEventListener("click", () => {
+  closeReview();
+  editor.refresh();
+  updateEditorButtons();
+});
+
+document.getElementById("reviewOk").addEventListener("click", () => {
+  approvedLines = JSON.stringify(style.lines);
+  closeReview();
+  editorScreen.hidden = true;
+  updateEditorButtons();
+  updateStyleState();
+});
+
+window.addEventListener("resize", () => {
+  if (!reviewScreen.hidden) editor.renderReview(reviewList);
 });
 
 photoInput.addEventListener("change", async () => {
