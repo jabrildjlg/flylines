@@ -23,7 +23,7 @@ export const DEFAULT_STYLE = {
       // Oberkante: Landmark-Ring über der Oberlippe (57 … 287), zur Nase hin angehoben.
       // Unterkante: Oberkante der Oberlippe (291 … 61).
       id: "schnauzer",
-      group: "schnauzer",
+      group: "bart",
       area: "bart",
       closed: true,
       enabled: true,
@@ -36,7 +36,7 @@ export const DEFAULT_STYLE = {
     {
       // Oben: Ring unter der Unterlippe (182, 83, 18, 313, 406). Unten: Kinnkante (400, 152, 176).
       id: "goatee",
-      group: "goatee",
+      group: "bart",
       area: "bart",
       closed: true,
       enabled: true,
@@ -65,8 +65,7 @@ export const DEFAULT_STYLE = {
 };
 
 export const GROUPS = [
-  { key: "schnauzer", label: "Schnauzer" },
-  { key: "goatee", label: "Goatee" },
+  { key: "bart", label: "Bart" },
   { key: "brauen", label: "Brauen" },
 ];
 

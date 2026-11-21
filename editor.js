@@ -5,9 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=8";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=8";
-import { analyzeBeard } from "./analyze.js?v=8";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=9";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=9";
+import { analyzeBeard } from "./analyze.js?v=9";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
@@ -32,6 +32,9 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   let current = -1;
   let selected = null; // { line, point }
   let drag = null; // { pointerId, dx, dy }
+  let lastSide = 1; // zuletzt bearbeitete Gesichtshälfte: 1 = im Bild links, -1 = rechts
+  let analyzed = false; // es gab schon eine Analyse
+  let edited = false; // seit der letzten Analyse wurde von Hand geändert
 
   const photo = () => photos[current] || null;
   const hasPhoto = () => current >= 0;
@@ -150,6 +153,15 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     });
   }
 
+  /** Lädt mehrere Fotos nacheinander (höchstens so viele, wie Plätze da sind). */
+  async function addPhotos(files) {
+    let added = 0;
+    for (const file of Array.from(files).slice(0, MAX_PHOTOS)) {
+      if (await addPhoto(file)) added++;
+    }
+    return added;
+  }
+
   /** Zeigt das Foto mit der Nummer index. */
   function show(index) {
     if (index < 0 || index >= photos.length) return;
@@ -219,8 +231,10 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
 
     for (const { line, index } of visibleLines()) {
       line.points.forEach((point, pi) => {
-        const p = positionOf(point);
         const isSel = selected && selected.line === index && selected.point === pi;
+        // Beim Ziehen nur den gezogenen Punkt zeigen, damit die anderen den Bart nicht verdecken.
+        if (drag && !isSel) return;
+        const p = positionOf(point);
         ctx.beginPath();
         ctx.arc(p.x, p.y, (isSel ? 9 : 5) * u, 0, Math.PI * 2);
         if (isSel) {
@@ -314,6 +328,19 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     return best;
   }
 
+  // Gesichtshälfte eines Punkts im gezeigten Foto: 1 = im Bild links, -1 = rechts, 0 = Mitte.
+  function sideOf(point) {
+    const frame = photo().frame;
+    const d = signedDistance(frame, position3d(point));
+    return Math.abs(d) < frame.faceWidth * 0.015 ? 0 : Math.sign(d) * frame.leftSign;
+  }
+
+  function rememberSide() {
+    if (!selected) return;
+    const side = sideOf(style.lines[selected.line].points[selected.point]);
+    if (side) lastSide = side;
+  }
+
   // ---- Finger ----------------------------------------------------------------
 
   canvas.addEventListener("pointerdown", (e) => {
@@ -340,6 +367,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     }
 
     selected = hit;
+    rememberSide();
     if (drag) {
       canvas.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -354,7 +382,10 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const x = Math.max(0, Math.min(canvas.width, p.x + drag.dx));
     const y = Math.max(0, Math.min(canvas.height, p.y + drag.dy));
     const anchor = anchorAt(x, y);
-    if (anchor) style.lines[selected.line].points[selected.point] = anchor;
+    if (anchor) {
+      style.lines[selected.line].points[selected.point] = anchor;
+      edited = true;
+    }
     e.preventDefault();
     render();
   });
@@ -362,6 +393,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     drag = null;
+    rememberSide();
     render();
     onChange();
   }
@@ -380,6 +412,18 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     if (!canDelete()) return;
     style.lines[selected.line].points.splice(selected.point, 1);
     selected = null;
+    edited = true;
+    render();
+    onChange();
+  }
+
+  /** Löscht die ganze Form, zu der der gewählte Punkt gehört. */
+  function deleteShape() {
+    if (!selected) return;
+    const [removed] = style.lines.splice(selected.line, 1);
+    for (const line of style.lines) if (line.partner === removed.id) delete line.partner;
+    selected = null;
+    edited = true;
     render();
     onChange();
   }
@@ -401,17 +445,17 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const at = j === i - 1 ? i : i + 1;
     line.points.splice(at, 0, anchor);
     selected = { line: selected.line, point: at };
+    edited = true;
     render();
     onChange();
   }
 
-  // Spiegelt die im Bild linke Hälfte jeder sichtbaren Form auf die rechte.
-  // Formen über der Gesichtsmitte (Schnauzer, Goatee) werden symmetrisch.
-  // Formen ganz auf der linken Seite (eine Braue) überschreiben ihre Partnerform.
+  // Spiegelt die zuletzt bearbeitete Gesichtshälfte jeder sichtbaren Form auf die andere.
+  // Formen über der Gesichtsmitte (z. B. Schnauzer) werden symmetrisch.
+  // Formen ganz auf der Quellseite (z. B. eine Braue) überschreiben ihre Partnerform.
   function mirror() {
     if (!hasPhoto()) return;
     const frame = photo().frame;
-    const eps = frame.faceWidth * 0.015; // so nah an der Mitte gilt ein Punkt als «auf der Mitte»
 
     const mirrorPoint = (point) => {
       const r = reflect(frame, position3d(point));
@@ -422,18 +466,15 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
       const d = signedDistance(frame, p);
       return anchorAt(p.x - d * frame.n.x, p.y - d * frame.n.y) || point;
     };
-    const sideOf = (point) => {
-      const d = signedDistance(frame, position3d(point));
-      return Math.abs(d) < eps ? 0 : Math.sign(d) * frame.leftSign; // 1 = im Bild links
-    };
 
     for (const { line } of visibleLines()) {
-      const sides = line.points.map(sideOf);
-      const hasLeft = sides.includes(1);
-      const hasRight = sides.includes(-1);
+      // 1 = Quellseite (zuletzt bearbeitet), -1 = Zielseite, 0 = auf der Mitte
+      const sides = line.points.map((point) => sideOf(point) * lastSide);
+      const hasSource = sides.includes(1);
+      const hasTarget = sides.includes(-1);
 
-      if (hasLeft && !hasRight && !sides.includes(0)) {
-        // Ganz links: Partnerform auf der rechten Seite neu setzen.
+      if (hasSource && !hasTarget && !sides.includes(0)) {
+        // Ganz auf der Quellseite: Partnerform auf der anderen Seite neu setzen.
         const points = line.points.map(mirrorPoint).filter(Boolean);
         if (points.length < minPoints(line)) continue;
         let partner = style.lines.find((l) => l.id === line.partner);
@@ -445,9 +486,9 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
         partner.points = points;
         continue;
       }
-      if (!hasLeft) continue; // ganz rechts oder nur auf der Mitte: nichts zu spiegeln
+      if (!hasSource) continue; // ganz auf der Zielseite oder nur auf der Mitte: nichts zu spiegeln
 
-      // Über der Mitte: linke Hälfte behalten, rechte aus ihr neu aufbauen.
+      // Über der Mitte: Quellhälfte behalten, die andere aus ihr neu aufbauen.
       const n = sides.length;
       let start = 0;
       if (line.closed) {
@@ -473,19 +514,22 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
         }
       }
       mirrored.reverse();
-      // Offene Linie, die rechts beginnt: die gespiegelten Punkte gehören an den Anfang.
+      // Offene Linie, die auf der Zielseite beginnt: die gespiegelten Punkte gehören an den Anfang.
       const mirroredFirst = !line.closed && sides[0] < 0;
       const points = mirroredFirst ? mirrored.concat(keep) : keep.concat(mirrored);
       if (points.length >= minPoints(line)) line.points = points;
     }
 
     selected = null;
+    edited = true;
     render();
     onChange();
   }
 
-  // Bart-Analyse über alle geladenen Fotos. Setzt die gefundenen Umrisse als neue
-  // Formen für Schnauzer und Goatee. Bezug ist das Foto, das am ehesten von vorn zeigt.
+  // Bart-Analyse über alle geladenen Fotos. Bezug ist das Foto, das am ehesten von vorn zeigt.
+  // Erste Analyse: schlägt alle Bartformen neu vor und ersetzt die bisherigen.
+  // Nach eigenen Änderungen: geht von den bestehenden Formen aus und zieht nur jeden
+  // Punkt an die nächste Bartkante in seiner Nähe (Feinabgleich).
   function analyze() {
     if (!hasPhoto()) return null;
     const data = photos.map((p) => ({
@@ -504,23 +548,50 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
         ref = i;
       }
     });
-
-    const result = analyzeBeard(data, ref);
     show(ref);
-    const found = [];
-    for (const key of ["schnauzer", "goatee"]) {
-      const outline = result[key];
-      const line = style.lines.find((l) => l.id === key);
-      if (!outline || !line) continue;
-      const points = outline.map((p) => anchorAt(p.x, p.y)).filter(Boolean);
-      if (points.length < 3) continue;
-      line.points = points;
-      line.enabled = true;
-      found.push(key);
+
+    const beardLines = style.lines.filter((l) => l.area === "bart" && l.closed && l.enabled !== false);
+    const refine = analyzed && edited && beardLines.length > 0;
+    let summary;
+
+    if (refine) {
+      const current = beardLines.map((line) => line.points.map(positionOf));
+      const result = analyzeBeard(data, ref, current);
+      result.shapes.forEach((points, i) => {
+        const anchors = points.map((p) => anchorAt(p.x, p.y));
+        if (anchors.every(Boolean)) beardLines[i].points = anchors;
+      });
+      summary = { mode: "refine", moved: result.moved || 0, ref };
+    } else {
+      const result = analyzeBeard(data, ref);
+      const lines = result.shapes
+        .map((points, i) => ({
+          id: `bart-${i + 1}`,
+          group: "bart",
+          area: "bart",
+          closed: true,
+          enabled: true,
+          points: points.map((p) => anchorAt(p.x, p.y)).filter(Boolean),
+        }))
+        .filter((line) => line.points.length >= 3);
+      if (lines.length) {
+        style.lines = style.lines.filter((l) => l.area !== "bart").concat(lines);
+        analyzed = true;
+      }
+      summary = { mode: "full", count: lines.length, ref };
     }
+
+    edited = false;
+    selected = null;
     render();
     onChange();
-    return { found, ref };
+    return summary;
+  }
+
+  /** Vergisst den Analyse-Stand (nach «Zurücksetzen»): die nächste Analyse beginnt neu. */
+  function resetAnalysis() {
+    analyzed = false;
+    edited = false;
   }
 
   function refresh() {
@@ -536,10 +607,13 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
 
   return {
     addPhoto,
+    addPhotos,
     show,
     photoCount: () => photos.length,
     currentPhoto: () => current,
     deleteSelected,
+    deleteShape,
+    resetAnalysis,
     canDelete,
     addAfterSelected,
     hasSelection: () => Boolean(selected),

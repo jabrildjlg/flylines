@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=8";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=8";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=8";
+import { createTracker } from "./tracker.js?v=9";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=9";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=9";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -330,6 +330,7 @@ const groupChips = document.getElementById("groupChips");
 const photoLabel = document.getElementById("photoLabel");
 const addBtn = document.getElementById("addBtn");
 const deleteBtn = document.getElementById("deleteBtn");
+const shapeBtn = document.getElementById("shapeBtn");
 const mirrorBtn = document.getElementById("mirrorBtn");
 const resetBtn = document.getElementById("resetBtn");
 const analyzeBtn = document.getElementById("analyzeBtn");
@@ -342,6 +343,7 @@ function updateEditorButtons() {
   const ready = editor.hasPhoto();
   addBtn.disabled = !editor.hasSelection();
   deleteBtn.disabled = !editor.canDelete();
+  shapeBtn.disabled = !editor.hasSelection();
   mirrorBtn.disabled = !ready;
   resetBtn.disabled = !ready;
   analyzeBtn.disabled = !ready;
@@ -403,10 +405,10 @@ document.getElementById("editorBack").addEventListener("click", () => {
 });
 
 photoInput.addEventListener("change", async () => {
-  const file = photoInput.files && photoInput.files[0];
+  const files = Array.from(photoInput.files || []);
   photoInput.value = ""; // dasselbe Foto soll sich erneut wählen lassen
-  if (!file) return;
-  await editor.addPhoto(file);
+  if (!files.length) return;
+  await editor.addPhotos(files);
   editorHint.textContent = DEFAULT_HINT;
   updateEditorButtons();
 });
@@ -425,25 +427,26 @@ analyzeBtn.addEventListener("click", async () => {
   setEditorMessage("");
   updateEditorButtons();
 
-  const names = { schnauzer: "Schnauzer", goatee: "Goatee" };
   if (!result) {
     editorHint.textContent = "Die Analyse ist fehlgeschlagen. Die Formen bleiben unverändert.";
-  } else if (!result.found.length) {
-    editorHint.textContent = "Kein klarer Bart erkannt, die Formen bleiben unverändert. Am besten klappt es mit gleichmässigem Licht und deutlichem Kontrast.";
+  } else if (result.mode === "refine") {
+    editorHint.textContent = result.moved
+      ? `Feinabgleich: ${result.moved} Punkte an die nächste Bartkante gezogen, deine Formen bleiben. Für einen Neuanfang zuerst «Zurücksetzen».`
+      : "Feinabgleich: Keine Bartkante in der Nähe deiner Punkte gefunden, nichts verändert.";
+  } else if (!result.count) {
+    editorHint.textContent = "Kein klarer Bart erkannt, die Formen bleiben unverändert. Am besten klappt es mit gleichmässigem Licht.";
   } else {
-    const list = result.found.map((key) => names[key]).join(" und ");
-    const missing = ["schnauzer", "goatee"].filter((key) => !result.found.includes(key)).map((key) => names[key]);
-    editorHint.textContent =
-      `Vorschlag für ${list} gesetzt (Foto ${result.ref + 1}). Prüfe die Kanten und ziehe nach.` +
-      (missing.length ? ` ${missing.join(" und ")} nicht erkannt.` : "");
+    editorHint.textContent = `${result.count} Bartform${result.count > 1 ? "en" : ""} vorgeschlagen (Foto ${result.ref + 1}). Falsche Formen: Punkt antippen, «Form löschen».`;
   }
 });
 
 addBtn.addEventListener("click", () => editor.addAfterSelected());
 deleteBtn.addEventListener("click", () => editor.deleteSelected());
+shapeBtn.addEventListener("click", () => editor.deleteShape());
 mirrorBtn.addEventListener("click", () => editor.mirror());
 resetBtn.addEventListener("click", () => {
   style.lines = cloneStyle(DEFAULT_STYLE).lines;
+  editor.resetAnalysis();
   editorHint.textContent = DEFAULT_HINT;
   editor.refresh();
   updateEditorButtons();
