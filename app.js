@@ -20,9 +20,11 @@ const params = new URLSearchParams(location.search);
 const forceCpu = params.has("cpu");
 // Mit ?glatt=0 lässt sich die Glättung zum Vergleich abschalten.
 const smoothing = params.get("glatt") !== "0";
+// Mit ?sync=0 wird das Kamerabild wie früher direkt gezeigt (Linien hinken dann leicht nach).
+const syncFrames = params.get("sync") !== "0";
 
 const style = TEST_STYLE;
-const smoother = new StyleSmoother({ minCutoff: 1.5, beta: 0.02 });
+const smoother = new StyleSmoother({ minCutoff: 2, beta: 0.05 });
 let showDots = false;
 
 let stream = null;
@@ -124,18 +126,28 @@ let lastVideoTime = -1;
 let faceVisible = false;
 let failures = 0;
 
-function loop() {
-  if (!running) return;
-  loopId = requestAnimationFrame(loop);
-
-  if (!tracker || video.readyState < 2 || video.currentTime === lastVideoTime) return;
-  lastVideoTime = video.currentTime;
+// Verarbeitet genau ein Kamerabild.
+//
+// Wichtig gegen das Nachziehen: Das Kamerabild wird zuerst auf die Zeichenfläche
+// kopiert, die Erkennung läuft auf genau dieser Kopie, und die Linien kommen
+// darüber. Bild und Linien stammen so immer vom selben Moment. Würde das
+// <video> direkt gezeigt, wäre es den Linien immer ein bis zwei Bilder voraus.
+function processFrame() {
+  if (!tracker || video.readyState < 2) return;
   resizeOverlay();
-
+  const w = overlay.width;
+  const h = overlay.height;
   const now = performance.now();
+
+  let source = video;
+  if (syncFrames) {
+    ctx.drawImage(video, 0, 0, w, h);
+    source = overlay;
+  }
+
   let face = null;
   try {
-    face = tracker.detect(video, now);
+    face = tracker.detect(source, now);
     failures = 0;
   } catch (err) {
     console.error(err);
@@ -148,7 +160,7 @@ function loop() {
     return;
   }
 
-  clearOverlay();
+  if (!syncFrames) clearOverlay();
   if (face) {
     if (showDots) drawLandmarks(face.landmarks);
     drawStyle(face.landmarks, now);
@@ -165,6 +177,34 @@ function loop() {
   if (countFrame(now)) {
     showStatus(`${fps} FPS · ${tracker.delegate} · ${video.videoWidth}×${video.videoHeight}`);
   }
+}
+
+// Safari meldet jedes neue Kamerabild einzeln (requestVideoFrameCallback).
+// Ältere Browser fragen stattdessen bei jedem Bildschirmaufbau nach.
+const useVideoFrames = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+
+function loop() {
+  if (!running) return;
+  if (useVideoFrames) {
+    loopId = video.requestVideoFrameCallback(loop);
+    processFrame();
+  } else {
+    loopId = requestAnimationFrame(loop);
+    if (video.currentTime === lastVideoTime) return;
+    lastVideoTime = video.currentTime;
+    processFrame();
+  }
+}
+
+function scheduleLoop() {
+  loopId = useVideoFrames
+    ? video.requestVideoFrameCallback(loop)
+    : requestAnimationFrame(loop);
+}
+
+function cancelLoop() {
+  if (useVideoFrames) video.cancelVideoFrameCallback(loopId);
+  else cancelAnimationFrame(loopId);
 }
 
 async function startTracking() {
@@ -188,7 +228,7 @@ async function startTracking() {
   fpsSince = 0;
   lastVideoTime = -1;
   running = true;
-  loopId = requestAnimationFrame(loop);
+  scheduleLoop();
 }
 
 // ---- Kamera ----------------------------------------------------------------
@@ -237,7 +277,7 @@ async function startCamera() {
 
 function stopCamera() {
   running = false;
-  cancelAnimationFrame(loopId);
+  cancelLoop();
   if (stream) {
     stream.getTracks().forEach((track) => track.stop());
     stream = null;

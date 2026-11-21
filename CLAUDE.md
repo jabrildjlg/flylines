@@ -99,10 +99,10 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
 
 - Schritt 1 bestanden (iPhone-Test am 21.11.2026): Grundgerüst, gespiegeltes Kamerabild, GitHub Pages unter https://jabrildjlg.github.io/flylines/.
 - Schritt 2 bestanden (iPhone-Test am 21.11.2026): 30 bis 60 FPS mit GPU bei 720×1280, Punkte sitzen richtig. Das Netz endet an der oberen Stirn, etwa 2 cm unter dem Haaransatz des Nutzers (wichtig für Schritt 11).
-- Schritt 3 gebaut (Linien-Modell, Projektion, Glättung, Testlinie an der Schnauzer-Oberkante). Wartet auf den Test am iPhone.
+- Schritt 3 gebaut, erste Runde am iPhone: Testlinie sitzt richtig (frontal und gedreht), zog aber sichtbar nach. Korrektur gebaut: Kamerabild wird pro Bild auf die Zeichenfläche kopiert, Erkennung läuft auf dieser Kopie, Linien darüber (Bild und Linien immer vom selben Moment); Schleife über `requestVideoFrameCallback`; Glättung leichter (minCutoff 2, beta 0.05). Wartet auf den zweiten Test.
 - MediaPipe: `@mediapipe/tasks-vision` Version 1.2.3, in `tracker.js` fest eingetragen. Bibliothek, WASM und Modell werden vorerst aus dem Netz geladen (jsDelivr, Modell von Hugging Face bzw. Google Storage). Liegt das Modell unter `models/face_landmarker.task`, wird es automatisch von dort genommen. Für Schritt 12 (offline) müssen Bibliothek, WASM und Modell ins Repository.
-- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 1.5, beta 0.02, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `TEST_STYLE` ist nur die Testlinie und wird in Schritt 5 durch echte Styles ersetzt.
+- Linien: `lines.js` enthält Modell (`{ tri, w }`), Projektion, One-Euro-Glättung (minCutoff 2, beta 0.05, auf den projizierten Pixelpunkten) und das Zeichnen als Catmull-Rom-Kurve. `TEST_STYLE` ist nur die Testlinie und wird in Schritt 5 durch echte Styles ersetzt.
 - Entscheid für Schritt 4/5: Das Dreieck eines neuen Kontrollpunkts wird im Editor aus einer Delaunay-Triangulation der 2D-Landmarks des Fotos bestimmt. Die offizielle Tesselations-Tabelle von MediaPipe wird nicht gebraucht, weil jedes Dreieck aus drei Landmarks als Anker taugt.
-- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung. Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
+- Diagnose: `?cpu=1` schaltet die Grafikkarte ab, `?glatt=0` die Glättung, `?sync=0` das Kopieren des Kamerabilds (alter Zustand zum Vergleich). Knopf «Punkte ein/aus» zeigt die Gesichtspunkte.
 - Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Zeichnen), `tracker.js` (MediaPipe), `lines.js` (Linien).
 - Nächster Schritt nach bestandenem Test: 4 (Linien-Editor).
