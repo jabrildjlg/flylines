@@ -97,5 +97,9 @@ Anforderungen eines Styles: passende Haartypen, Mindestlänge, nötige Bartzonen
 
 ## Stand
 
-- Schritt 1 gebaut (Grundgerüst, gespiegeltes Kamerabild). Wartet auf den Test am iPhone.
-- Nächster Schritt nach bestandenem Test: 2 (Gesichtstracking).
+- Schritt 1 bestanden (iPhone-Test am 21.11.2026): Grundgerüst, gespiegeltes Kamerabild, GitHub Pages unter https://jabrildjlg.github.io/flylines/.
+- Schritt 2 gebaut (Gesichtstracking mit Punkten und FPS-Anzeige). Wartet auf den Test am iPhone.
+- MediaPipe: `@mediapipe/tasks-vision` Version 1.2.3, in `tracker.js` fest eingetragen. Bibliothek, WASM und Modell werden vorerst aus dem Netz geladen (jsDelivr, Modell von Hugging Face bzw. Google Storage). Liegt das Modell unter `models/face_landmarker.task`, wird es automatisch von dort genommen. Für Schritt 12 (offline) müssen Bibliothek, WASM und Modell ins Repository.
+- Diagnose: `?cpu=1` an der Adresse schaltet die Grafikkarte ab.
+- Dateien: `index.html`, `style.css`, `app.js` (Kamera, Schleife, Zeichnen), `tracker.js` (MediaPipe).
+- Nächster Schritt nach bestandenem Test: 3 (Linien-Modell und Projektion).

@@ -124,6 +124,24 @@ button {
 .primary:disabled { opacity: 0.6; }
 .primary:active { transform: scale(0.98); }
 
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 84px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2;
+}
+
 .bottombar {
   position: absolute;
   left: 0; right: 0; bottom: 0;

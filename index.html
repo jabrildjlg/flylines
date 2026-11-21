@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlyLines">
   <title>FlyLines</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <main id="app">
@@ -30,11 +30,14 @@
       <p class="hint">Das Kamerabild bleibt auf deinem Gerät.</p>
     </section>
 
+    <!-- Hinweise während der Kamera läuft (z. B. «Kein Gesicht im Bild.») -->
+    <p id="notice" class="notice" role="status" hidden></p>
+
     <footer class="bottombar" id="controls" hidden>
       <button id="stopBtn" class="ghost" type="button">Kamera stoppen</button>
     </footer>
   </main>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=2"></script>
 </body>
 </html>
