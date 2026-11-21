@@ -1,8 +1,8 @@
 // FlyLines – Bauschritt 5: Live-Spiegel mit dem Style aus dem Linien-Editor.
 
-import { createTracker } from "./tracker.js?v=11";
-import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=11";
-import { createEditor, MAX_PHOTOS } from "./editor.js?v=11";
+import { createTracker } from "./tracker.js?v=12";
+import { DEFAULT_STYLE, GROUPS, StyleSmoother, projectLine3, headCenter, facing, drawLine } from "./lines.js?v=12";
+import { createEditor, MAX_PHOTOS } from "./editor.js?v=12";
 
 const app = document.getElementById("app");
 const video = document.getElementById("camera");
@@ -467,7 +467,7 @@ photoInput.addEventListener("change", async () => {
   updateEditorButtons();
 });
 
-// Bart-Analyse: schlägt aus allen geladenen Fotos die Umrisse von Schnauzer und Goatee vor.
+// Bart-Analyse: schlägt aus allen geladenen Fotos zusammen die Umrisse des Barts vor.
 analyzeBtn.addEventListener("click", async () => {
   analyzeBtn.disabled = true;
   setEditorMessage("Fotos werden analysiert …");
@@ -490,7 +490,9 @@ analyzeBtn.addEventListener("click", async () => {
   } else if (!result.count) {
     editorHint.textContent = "Kein klarer Bart erkannt, die Formen bleiben unverändert. Am besten klappt es mit gleichmässigem Licht.";
   } else {
-    editorHint.textContent = `${result.count} Bartform${result.count > 1 ? "en" : ""} vorgeschlagen (Foto ${result.ref + 1}). Falsche Formen: Punkt antippen, «Form löschen».`;
+    const from = result.photos === 1 ? "einem Foto" : `${result.used} von ${result.photos} Fotos`;
+    const skipped = result.used < result.photos ? " Zu weit gedrehte Seitenfotos zählen nicht mit: Halbprofil (etwa 45°) statt reines Profil." : "";
+    editorHint.textContent = `${result.count} Bartform${result.count > 1 ? "en" : ""} aus ${from} vorgeschlagen.${skipped} Falsche Formen: Punkt antippen, «Form löschen».`;
   }
 });
 

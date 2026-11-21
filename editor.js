@@ -5,9 +5,9 @@
 // ({ tri, w }), nie als Bildposition. Was auf einem Foto verschoben wird,
 // verschiebt sich darum auf den anderen Fotos und später im Live-Bild mit.
 
-import { projectLine, projectPoint, drawLine } from "./lines.js?v=11";
-import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=11";
-import { analyzeBeard } from "./analyze.js?v=11";
+import { projectLine, projectPoint, drawLine } from "./lines.js?v=12";
+import { delaunay, locate, sagittalFrame, signedDistance, reflect } from "./geometry.js?v=12";
+import { analyzeBeard } from "./analyze.js?v=12";
 
 // Nur die 468 Punkte des Gesichtsnetzes. Die Iris-Punkte (468–477) bewegen sich
 // mit dem Blick und taugen nicht als Anker.
@@ -85,6 +85,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     const entry = {
       image: cropped.image,
       landmarks: cropped.landmarks,
+      crop: cropped.crop, // Ausschnitt im Originalfoto (für den Prüfstand)
       pixels,
       tris: delaunay(pixels),
       frame: sagittalFrame(pixels),
@@ -134,7 +135,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
       y: (p.y * img.height - y0) / ch,
       z: (p.z * img.width) / cw,
     }));
-    return { image, landmarks };
+    return { image, landmarks, crop: { x: x0, y: y0, width: cw, height: ch, srcWidth: img.width, srcHeight: img.height } };
   }
 
   function decodeImage(file) {
@@ -642,7 +643,9 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     onChange();
   }
 
-  // Bart-Analyse über alle geladenen Fotos. Bezug ist das Foto, das am ehesten von vorn zeigt.
+  // Bart-Analyse über ALLE geladenen Fotos zusammen: Jedes Foto trägt die Stellen bei,
+  // die es am direktesten sieht (Frontbild: Mund und Kinn, Seitenbilder: Wange und Kiefer).
+  // Das Ergebnis sind Anker im Gesichtsnetz und gilt darum für jedes Foto.
   // Erste Analyse: schlägt alle Bartformen neu vor und ersetzt die bisherigen.
   // Nach eigenen Änderungen: geht von den bestehenden Formen aus und zieht nur jeden
   // Punkt an die nächste Bartkante in seiner Nähe (Feinabgleich).
@@ -653,48 +656,28 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
       height: p.image.height,
       data: p.image.getContext("2d").getImageData(0, 0, p.image.width, p.image.height).data,
       pixels: p.pixels,
-      tris: p.tris,
     }));
-    let ref = 0;
-    let best = Infinity;
-    photos.forEach((p, i) => {
-      const turned = Math.abs(p.frame.n.z); // 0 = genau von vorn
-      if (turned < best) {
-        best = turned;
-        ref = i;
-      }
-    });
-    show(ref);
 
     const beardLines = style.lines.filter((l) => l.area === "bart" && l.closed && l.enabled !== false);
     const refine = analyzed && edited && beardLines.length > 0;
     let summary;
 
     if (refine) {
-      const current = beardLines.map((line) => line.points.map(positionOf));
-      const result = analyzeBeard(data, ref, current);
+      const result = analyzeBeard(data, beardLines.map((line) => line.points));
       result.shapes.forEach((points, i) => {
-        const anchors = points.map((p) => anchorAt(p.x, p.y));
-        if (anchors.every(Boolean)) beardLines[i].points = anchors;
+        beardLines[i].points = points;
       });
-      summary = { mode: "refine", moved: result.moved || 0, ref };
+      summary = { mode: "refine", moved: result.moved || 0, photos: photos.length, used: result.used };
     } else {
-      const result = analyzeBeard(data, ref);
+      const result = analyzeBeard(data);
       const lines = result.shapes
-        .map((points, i) => ({
-          id: `bart-${i + 1}`,
-          group: "bart",
-          area: "bart",
-          closed: true,
-          enabled: true,
-          points: points.map((p) => anchorAt(p.x, p.y)).filter(Boolean),
-        }))
+        .map((points, i) => ({ id: `bart-${i + 1}`, group: "bart", area: "bart", closed: true, enabled: true, points }))
         .filter((line) => line.points.length >= 3);
       if (lines.length) {
         style.lines = style.lines.filter((l) => l.area !== "bart").concat(lines);
         analyzed = true;
       }
-      summary = { mode: "full", count: lines.length, ref };
+      summary = { mode: "full", count: lines.length, photos: photos.length, used: result.used };
     }
 
     edited = false;
@@ -767,6 +750,7 @@ export function createEditor({ canvas, stage, style, getTracker, onMessage, onCh
     addPhotos,
     show,
     photoCount: () => photos.length,
+    photoData: () => photos.slice(), // nur für den Prüfstand
     currentPhoto: () => current,
     deleteSelected,
     deleteShape,

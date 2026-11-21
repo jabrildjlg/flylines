@@ -10,14 +10,17 @@
 // Ablauf:
 // 1. Erlaubte Fläche: untere Gesichtshälfte innerhalb des Gesichtsnetzes,
 //    ohne Lippen und ohne Nase (Nasenlöcher sind auch dunkel und farblos).
-// 2. Jede Stelle über das Gesichtsnetz in allen Fotos nachschlagen. Pro Foto die
-//    Hautfarbe an den Wangen messen und ausrechnen, wie viel Farbe an der Stelle fehlt.
-//    Fotos, die eine Stelle schräg oder gar nicht sehen, zählen weniger.
+// 2. Das Gesicht auf eine flache Karte abwickeln und jede Stelle über das Gesichtsnetz
+//    in ALLEN Fotos nachschlagen. Pro Foto die Hautfarbe an den Wangen messen und
+//    ausrechnen, wie viel Farbe an der Stelle fehlt. Jedes Foto zählt dort am meisten,
+//    wo es die Haut direkt sieht; abgewandte Stellen zählen gar nicht.
 // 3. Schwelle zwischen «Haut» und «Bart» automatisch bestimmen (Otsu).
 // 4. Kleine Flecken entfernen, jede zusammenhängende Fläche und jedes Loch darin
 //    (z. B. der Mund in einem Vollbart) als Umriss zurückgeben.
 //
 // Das Ergebnis ist ein Vorschlag, den der Nutzer prüft und nachzieht.
+
+import { delaunay, locate, sagittalFrame, signedDistance } from "./geometry.js?v=12";
 
 const RING = [57, 186, 92, 165, 167, 164, 393, 391, 322, 410, 287]; // Ring über der Oberlippe
 const LIP_UP = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291]; // Oberkante Oberlippe
@@ -25,7 +28,19 @@ const LIPS = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 31
 // Gesichtsrand von der einen Wange über das Kinn zur anderen.
 const OVAL_LOW = [234, 93, 132, 58, 172, 136, 150, 149, 176, 148, 152, 377, 400, 378, 379, 365, 397, 288, 361, 323, 454];
 
-const GRID_WIDTH = 360; // Rechenraster über die untere Gesichtshälfte
+const GRID_WIDTH = 520; // Rechenraster über die abgewickelte untere Gesichtshälfte
+const MIN_FACING = 0.2; // schräger gesehene Dreiecke zählen in einem Foto nicht
+const FACING_POWER = 2; // wie stark das direkt schauende Foto bevorzugt wird
+const MIN_WEIGHT = 0.1; // darunter gilt eine Stelle als von keinem Foto gesehen
+const SIDE_SCALE = 0.96; // erlaubte Fläche an den Wangen: knapp innerhalb des Gesichtsrands
+const CHIN_SCALE = 1.14; // am Kinn: über den Netzrand hinaus
+const CHIN_SPAN = 5; // so viele Randpunkte links und rechts vom Kinn werden mit hinausgeschoben
+// Ab dieser Drehung (0 = von vorn, 1 = reines Profil) zählt ein Foto weniger, darüber gar
+// nicht mehr: Bei fast reinem Profil sitzt das Gesichtsnetz von MediaPipe am Kinn und am
+// Kiefer mehrere Prozent der Gesichtsbreite daneben (im Prüfstand gemessen).
+const THRESHOLD_MIX = 0.42; // Schwelle zwischen Haut (0) und Bart (1)
+const TURN_FULL = 0.6;
+const TURN_NONE = 0.9;
 
 // ---- Farbe ---------------------------------------------------------------------
 
@@ -114,8 +129,15 @@ function insidePolygon(poly, x, y) {
 
 // Erlaubte Fläche im Bezugsfoto: untere Gesichtshälfte ohne Lippen und Nase.
 export function regions(px) {
-  // Etwas vom Gesichtsrand weg, wo Hintergrund und Kieferschatten stören.
-  const face = scalePolygon(OVAL_LOW.map((i) => px[i]), 0.96);
+  // An den Seiten etwas vom Gesichtsrand weg, wo Hintergrund und Kieferschatten stören.
+  // Am Kinn dagegen über den Netzrand hinaus: Ein Kinnbart reicht bis unter die Kinnkante.
+  const oval = OVAL_LOW.map((i) => px[i]);
+  const mid = centroid(oval);
+  const chin = (OVAL_LOW.length - 1) / 2;
+  const face = oval.map((p, i) => {
+    const k = SIDE_SCALE + (CHIN_SCALE - SIDE_SCALE) * Math.max(0, 1 - Math.abs(i - chin) / CHIN_SPAN);
+    return { x: mid.x + (p.x - mid.x) * k, y: mid.y + (p.y - mid.y) * k };
+  });
   const lips = scalePolygon(LIPS.map((i) => px[i]), 1.08);
 
   // Nase: alles oberhalb einer Linie knapp unter der Nase, zwischen den Nasenflügeln.
@@ -313,18 +335,65 @@ function simplifyClosed(points, maxPoints) {
   return [points[0], points[far]];
 }
 
+// ---- Abwicklung ------------------------------------------------------------------
+// Alle Fotos werden auf EINER flachen Karte des Gesichts zusammengeführt: Das Gesicht
+// wird wie ein Etikett von einer Flasche abgewickelt (Winkel um die Kopfachse × Höhe).
+// Anders als im Frontbild sind die Wangen dort nicht gestaucht, und jedes Foto kann
+// die Stellen beitragen, die es am direktesten sieht.
+
+const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const times = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
+const cross = (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+const unit = (a) => times(a, 1 / (Math.hypot(a.x, a.y, a.z) || 1));
+
+/**
+ * Wickelt die 3D-Gesichtspunkte eines Fotos auf eine flache Karte ab.
+ * x = Bogenlänge um die Kopfachse (0 = Gesichtsmitte), y = Höhe (nach unten wachsend).
+ */
+export function unwrap(p3) {
+  const frame = sagittalFrame(p3);
+  const right = frame.n.x < 0 ? times(frame.n, -1) : frame.n; // zeigt im Bild nach rechts
+  const centre = times({ x: p3[234].x + p3[454].x, y: p3[234].y + p3[454].y, z: p3[234].z + p3[454].z }, 0.5);
+  const chinToBrow = sub(p3[10], p3[152]);
+  const up = unit(sub(chinToBrow, times(right, dot(chinToBrow, right))));
+  let front = cross(right, up);
+  if (dot(front, sub(p3[1], centre)) < 0) front = times(front, -1); // zur Nasenspitze hin
+  const radius = frame.faceWidth / 2;
+  const map = p3.map((p) => {
+    const d = sub(p, centre);
+    return { x: radius * Math.atan2(dot(d, right), dot(d, front)), y: -dot(d, up) };
+  });
+  return { map, faceWidth: frame.faceWidth };
+}
+
 // ---- Analyse ---------------------------------------------------------------------
 
 /**
- * @param {{width:number,height:number,data:Uint8ClampedArray,pixels:{x:number,y:number}[],tris:number[][]}[]} photos
- * @param {number} refIndex  Foto, in dessen Bild die Umrisse zurückgegeben werden (am besten das frontale)
- * @param {{x:number,y:number}[][]} [current]  Bestehende Umrisse im Bezugsfoto. Sind sie angegeben,
- *        wird nichts neu erfunden: Jeder Punkt wird nur an die nächste Bartkante in seiner Nähe gezogen.
- * @returns {{shapes: {x:number,y:number}[][], moved?: number}}  geschlossene Umrisse in Pixeln des Bezugsfotos
+ * @param {{width:number,height:number,data:Uint8ClampedArray,pixels:{x:number,y:number,z:number}[]}[]} photos
+ *        Alle geladenen Fotos mit ihren Gesichtspunkten in Pixeln (z wie x skaliert).
+ * @param {{tri:number[],w:number[]}[][]} [current]  Bestehende Formen als Anker im Gesichtsnetz.
+ *        Sind sie angegeben, wird nichts neu erfunden: Jeder Punkt wird nur an die nächste
+ *        Bartkante in seiner Nähe gezogen.
+ * @returns {{shapes: {tri:number[],w:number[]}[][], moved?: number, used: number}}  geschlossene Formen
+ *          als Anker; used = Anzahl Fotos, die mitgezählt haben (zu weit gedrehte zählen nicht)
  */
-export function analyzeBeard(photos, refIndex, current = null) {
-  const ref = photos[refIndex];
-  const px0 = ref.pixels;
+export function analyzeBeard(photos, current = null) {
+  // Die Karte entsteht aus dem Foto, das am ehesten von vorn zeigt (dort sind die
+  // 3D-Punkte am verlässlichsten).
+  let refIndex = 0;
+  let leastTurned = Infinity;
+  const frames = photos.map((photo, k) => {
+    const frame = sagittalFrame(photo.pixels);
+    if (Math.abs(frame.n.z) < leastTurned) {
+      leastTurned = Math.abs(frame.n.z);
+      refIndex = k;
+    }
+    return frame;
+  });
+  const { map: px0, faceWidth: refWidth } = unwrap(photos[refIndex].pixels);
+  const tris = delaunay(px0);
+  const toAnchor = (x, y) => locate(tris, px0, x, y);
   const { face, lips, nose } = regions(px0);
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -341,33 +410,34 @@ export function analyzeBeard(photos, refIndex, current = null) {
   const refX = (gx) => minX + (gx - 1 + 0.5) / g;
   const refY = (gy) => minY + (gy - 1 + 0.5) / g;
 
-  const allowed = new Uint8Array(gw * gh);
-  let allowedCount = 0;
+  const inside = new Uint8Array(gw * gh);
   for (let gy = 1; gy < gh - 1; gy++) {
     for (let gx = 1; gx < gw - 1; gx++) {
       const x = refX(gx);
       const y = refY(gy);
       if (insidePolygon(face, x, y) && !insidePolygon(lips, x, y) && !insidePolygon(nose, x, y)) {
-        allowed[gy * gw + gx] = 1;
-        allowedCount++;
+        inside[gy * gw + gx] = 1;
       }
     }
   }
-  if (allowedCount < 200) return { shapes: [] };
 
-  // Pro Foto: Hautfarbe links/rechts und Grössenverhältnis zum Bezugsfoto.
-  const refCheeks = cheeks(px0);
-  const refWidth = faceWidthOf(px0);
-  const info = photos.map((photo) => {
-    const [l, r] = cheeks(photo.pixels);
-    const radius = faceWidthOf(photo.pixels) * 0.035;
-    let left = skinLevel(photo, l.x, l.y, radius);
-    let right = skinLevel(photo, r.x, r.y, radius);
+  // Pro Foto: Hautfarbe an beiden Wangen. Eine Wange, die das Foto nicht sieht
+  // (Profil), übernimmt den Wert der sichtbaren.
+  const info = photos.map((photo, k) => {
+    const [a, b] = cheeks(photo.pixels);
+    const r = Math.max(4, frames[k].faceWidth * 0.035);
+    // Zeigt die Seite von Landmark 33 von der Kamera weg? (z wächst von der Kamera weg)
+    const awayA = Math.sign(signedDistance(frames[k], photo.pixels[33])) * frames[k].n.z;
+    let left = awayA < 0.6 ? skinLevel(photo, a.x, a.y, r) : null;
+    let right = -awayA < 0.6 ? skinLevel(photo, b.x, b.y, r) : null;
     left = left || right;
     right = right || left;
-    const scale = faceWidthOf(photo.pixels) / refWidth;
-    return { left, right, scale2: scale * scale };
+    const turned = Math.abs(frames[k].n.z);
+    const trust = k === refIndex ? 1 : Math.max(0, Math.min(1, (TURN_NONE - turned) / (TURN_NONE - TURN_FULL)));
+    return { left, right, trust };
   });
+
+  const used = info.filter((i) => i.trust > 0 && i.left).length; // Fotos, die mitzählen
 
   const area = (px, t) =>
     (px[t[1]].x - px[t[0]].x) * (px[t[2]].y - px[t[0]].y) - (px[t[2]].x - px[t[0]].x) * (px[t[1]].y - px[t[0]].y);
@@ -376,12 +446,53 @@ export function analyzeBeard(photos, refIndex, current = null) {
   // Dreieck für Dreieck über das Raster gehen: so ist für jeden Rasterpunkt sofort
   // bekannt, welche Stelle des Gesichtsnetzes er ist.
   const score = new Float32Array(gw * gh);
+  const allowed = new Uint8Array(gw * gh);
   const done = new Uint8Array(gw * gh);
+  let allowedCount = 0;
+  const refCheeks = cheeks(px0);
   const cdx = refCheeks[1].x - refCheeks[0].x;
   const cdy = refCheeks[1].y - refCheeks[0].y;
   const cl = cdx * cdx + cdy * cdy || 1;
 
-  for (const tri of ref.tris) {
+  // Sichtbarkeit eines Dreiecks pro Foto: Wie direkt schaut die Kamera darauf?
+  // 1 = senkrecht von vorn, 0 = von der Kante gesehen oder abgewandt.
+  const visibility = (tri, refArea) =>
+    photos.map((photo, k) => {
+      if (!info[k].trust || !info[k].left) return 0;
+      const p = photo.pixels;
+      const n = cross(sub(p[tri[1]], p[tri[0]]), sub(p[tri[2]], p[tri[0]]));
+      const cos = (n.z / (Math.hypot(n.x, n.y, n.z) || 1)) * Math.sign(refArea);
+      return cos <= MIN_FACING ? 0 : info[k].trust * cos ** FACING_POWER;
+    });
+
+  // Schlägt die Stelle (Dreieck + Gewichte) in allen Fotos nach und trägt sie ins Raster ein.
+  const sample = (idx, x, y, tri, wa, wb, wc, vis) => {
+    done[idx] = 1;
+    const side = Math.max(0, Math.min(1, ((x - refCheeks[0].x) * cdx + (y - refCheeks[0].y) * cdy) / cl));
+    let sum = 0, weight = 0;
+    for (let k = 0; k < photos.length; k++) {
+      if (vis[k] <= 0) continue;
+      const p = photos[k].pixels;
+      const sx = wa * p[tri[0]].x + wb * p[tri[1]].x + wc * p[tri[2]].x;
+      const sy = wa * p[tri[0]].y + wb * p[tri[1]].y + wc * p[tri[2]].y;
+      const v = sampleLC(photos[k], sx, sy);
+      if (!v) continue;
+      const skinL = info[k].left.l + (info[k].right.l - info[k].left.l) * side;
+      const skinC = info[k].left.c + (info[k].right.c - info[k].left.c) * side;
+      // Farblos UND nicht heller als die Haut (sonst wäre es ein Glanzlicht).
+      const s = v[0] < skinL * 1.02 && skinC > 1 ? Math.max(0, Math.min(1, 1 - v[1] / skinC)) : 0;
+      sum += vis[k] * s;
+      weight += vis[k];
+    }
+    // Stellen, die kein Foto brauchbar zeigt, bleiben aussen vor.
+    if (weight >= MIN_WEIGHT) {
+      score[idx] = sum / weight;
+      allowed[idx] = 1;
+      allowedCount++;
+    }
+  };
+
+  for (const tri of tris) {
     const A = px0[tri[0]], B = px0[tri[1]], C = px0[tri[2]];
     const refArea = area(px0, tri);
     if (Math.abs(refArea) < 1e-6) continue;
@@ -391,46 +502,41 @@ export function analyzeBeard(photos, refIndex, current = null) {
     const gy1 = Math.min(gh - 2, Math.ceil((Math.max(A.y, B.y, C.y) - minY) * g + 1));
     if (gx0 > gx1 || gy0 > gy1) continue;
     const denom = (B.y - C.y) * (A.x - C.x) + (C.x - B.x) * (A.y - C.y);
-
-    // Sichtbarkeit dieses Dreiecks pro Foto: seine Fläche im Vergleich zum Bezugsfoto.
-    const vis = photos.map((photo, k) => {
-      if (k === refIndex) return 1;
-      const ratio = area(photo.pixels, tri) / (refArea * info[k].scale2);
-      return ratio <= 0 ? 0 : Math.min(1, ratio) ** 2;
-    });
+    const vis = visibility(tri, refArea);
 
     for (let gy = gy0; gy <= gy1; gy++) {
       for (let gx = gx0; gx <= gx1; gx++) {
         const idx = gy * gw + gx;
-        if (!allowed[idx] || done[idx]) continue;
+        if (!inside[idx] || done[idx]) continue;
         const x = refX(gx);
         const y = refY(gy);
         const wa = ((B.y - C.y) * (x - C.x) + (C.x - B.x) * (y - C.y)) / denom;
         const wb = ((C.y - A.y) * (x - C.x) + (A.x - C.x) * (y - C.y)) / denom;
         const wc = 1 - wa - wb;
         if (wa < -1e-6 || wb < -1e-6 || wc < -1e-6) continue;
-        done[idx] = 1;
-
-        const side = Math.max(0, Math.min(1, ((x - refCheeks[0].x) * cdx + (y - refCheeks[0].y) * cdy) / cl));
-        let sum = 0, weight = 0;
-        for (let k = 0; k < photos.length; k++) {
-          if (vis[k] <= 0.05 || !info[k].left) continue;
-          const p = photos[k].pixels;
-          const sx = wa * p[tri[0]].x + wb * p[tri[1]].x + wc * p[tri[2]].x;
-          const sy = wa * p[tri[0]].y + wb * p[tri[1]].y + wc * p[tri[2]].y;
-          const v = sampleLC(photos[k], sx, sy);
-          if (!v) continue;
-          const skinL = info[k].left.l + (info[k].right.l - info[k].left.l) * side;
-          const skinC = info[k].left.c + (info[k].right.c - info[k].left.c) * side;
-          // Farblos UND nicht heller als die Haut (sonst wäre es ein Glanzlicht).
-          const s = v[0] < skinL * 1.02 && skinC > 1 ? Math.max(0, Math.min(1, 1 - v[1] / skinC)) : 0;
-          sum += vis[k] * s;
-          weight += vis[k];
-        }
-        if (weight > 0) score[idx] = sum / weight;
+        sample(idx, x, y, tri, wa, wb, wc, vis);
       }
     }
   }
+
+  // Rand ausserhalb des Netzes (unter der Kinnkante): das nächste Dreieck gerade
+  // weiterführen. Für die wenigen Prozent der Gesichtsbreite ist das genau genug.
+  // Nur Dreiecke unterhalb des Mundes kommen dafür in Frage (spart Rechenzeit).
+  const lowTris = tris.filter((t) => (px0[t[0]].y + px0[t[1]].y + px0[t[2]].y) / 3 > px0[17].y);
+  for (let gy = 1; gy < gh - 1; gy++) {
+    for (let gx = 1; gx < gw - 1; gx++) {
+      const idx = gy * gw + gx;
+      if (!inside[idx] || done[idx]) continue;
+      const x = refX(gx);
+      const y = refY(gy);
+      const anchor = locate(lowTris, px0, x, y);
+      if (!anchor) continue;
+      const refArea = area(px0, anchor.tri);
+      if (Math.abs(refArea) < 1e-6) continue;
+      sample(idx, x, y, anchor.tri, anchor.w[0], anchor.w[1], anchor.w[2], visibility(anchor.tri, refArea));
+    }
+  }
+  if (allowedCount < 200) return { shapes: [], used };
 
   // Leicht weichzeichnen, damit einzelne Haare und Poren keine Löcher reissen.
   const blurred = new Float32Array(gw * gh);
@@ -455,10 +561,10 @@ export function analyzeBeard(photos, refIndex, current = null) {
   for (let i = 0; i < gw * gh; i++) if (allowed[i]) values.push(blurred[i]);
   const o = otsu(values);
   // Ohne klaren Unterschied zwischen Haut und Bart gibt es keinen Vorschlag.
-  if (o.high - o.low < 0.12) return { shapes: [] };
+  if (o.high - o.low < 0.12) return { shapes: [], used };
   // Etwas unter der Mitte zwischen beiden Gruppen: so bleiben helle, dünne Enden
   // (z. B. die Spitzen eines Schnauzers) dabei, ohne dass Schatten mitkommen.
-  const threshold = Math.max(0.15, o.low + 0.42 * (o.high - o.low));
+  const threshold = Math.max(0.15, o.low + THRESHOLD_MIX * (o.high - o.low));
 
   let mask = new Uint8Array(gw * gh);
   for (let i = 0; i < gw * gh; i++) if (allowed[i] && blurred[i] >= threshold) mask[i] = 1;
@@ -475,7 +581,13 @@ export function analyzeBeard(photos, refIndex, current = null) {
     };
     let moved = 0;
     const shapes = current.map((points) =>
-      points.map((p) => {
+      points.map((anchor) => {
+        const [i0, i1, i2] = anchor.tri;
+        const [w0, w1, w2] = anchor.w;
+        const p = {
+          x: w0 * px0[i0].x + w1 * px0[i1].x + w2 * px0[i2].x,
+          y: w0 * px0[i0].y + w1 * px0[i1].y + w2 * px0[i2].y,
+        };
         const cx = Math.round((p.x - minX) * g + 0.5);
         const cy = Math.round((p.y - minY) * g + 0.5);
         let best = null;
@@ -485,15 +597,15 @@ export function analyzeBeard(photos, refIndex, current = null) {
             const d = Math.hypot(dx, dy);
             if (d < bestDist && isEdge(cx + dx, cy + dy)) {
               bestDist = d;
-              best = { x: refX(cx + dx), y: refY(cy + dy) };
+              best = toAnchor(refX(cx + dx), refY(cy + dy));
             }
           }
         }
         if (best && bestDist > 0.5) moved++;
-        return best || p;
+        return best || anchor;
       })
     );
-    return { shapes, moved };
+    return { shapes, moved, used };
   }
 
   // Bartflächen: alles, was gross genug ist.
@@ -508,7 +620,8 @@ export function analyzeBeard(photos, refIndex, current = null) {
     if (contour.length < 8) return;
     const maxPoints = Math.max(6, Math.min(22, Math.round(contour.length / 12)));
     const pts = simplifyClosed(contour, maxPoints);
-    if (pts.length >= 3) shapes.push(pts.map((p) => ({ x: refX(p.x), y: refY(p.y) })));
+    const anchors = pts.map((p) => toAnchor(refX(p.x), refY(p.y))).filter(Boolean);
+    if (anchors.length >= 3) shapes.push(anchors);
   };
   for (const c of beard.list) {
     if (c.size < minArea) continue;
@@ -526,5 +639,5 @@ export function analyzeBeard(photos, refIndex, current = null) {
     outline(holes.label, c.id);
   }
 
-  return { shapes };
+  return { shapes, used };
 }

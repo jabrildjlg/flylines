@@ -1,0 +1,8 @@
+{
+  "name": "flylines-pruefstand",
+  "private": true,
+  "type": "module",
+  "description": "Prüfstand für die Bart-Analyse von FlyLines. Gehört nicht zur ausgelieferten App.",
+  "scripts": { "messen": "node run.mjs" },
+  "dependencies": { "playwright-core": "^1.49.0" }
+}

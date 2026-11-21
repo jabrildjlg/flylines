@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>FlyLines Prüfstand</title>
+  <style>
+    body { margin: 0; background: #111; color: #eee; font: 14px sans-serif; }
+    #stage { width: 600px; height: 800px; }
+  </style>
+</head>
+<body>
+  <!-- Wird von run.mjs ferngesteuert. Benutzt die echten Module der App. -->
+  <input id="files" type="file" accept="image/*" multiple>
+  <div id="stage"><canvas id="canvas" width="0" height="0"></canvas></div>
+  <script type="module" src="bench.js"></script>
+</body>
+</html>
