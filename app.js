@@ -123,15 +123,19 @@ function countFrame(now) {
 // ---- Tracking-Schleife -----------------------------------------------------
 
 let lastVideoTime = -1;
+let workMs = 0;
 let faceVisible = false;
 let failures = 0;
 
 // Verarbeitet genau ein Kamerabild.
 //
 // Wichtig gegen das Nachziehen: Das Kamerabild wird zuerst auf die Zeichenfläche
-// kopiert, die Erkennung läuft auf genau dieser Kopie, und die Linien kommen
-// darüber. Bild und Linien stammen so immer vom selben Moment. Würde das
-// <video> direkt gezeigt, wäre es den Linien immer ein bis zwei Bilder voraus.
+// kopiert, unmittelbar danach läuft die Erkennung, und die Linien kommen darüber.
+// Bild und Linien stammen so vom selben Moment. Würde das <video> direkt gezeigt,
+// wäre es den Linien immer ein bis zwei Bilder voraus.
+//
+// Die Erkennung liest direkt vom <video> und nicht von der Zeichenfläche: Der Weg
+// Zeichenfläche → Grafikkarte ist in Safari langsam und halbierte die Bildrate.
 function processFrame() {
   if (!tracker || video.readyState < 2) return;
   resizeOverlay();
@@ -139,15 +143,11 @@ function processFrame() {
   const h = overlay.height;
   const now = performance.now();
 
-  let source = video;
-  if (syncFrames) {
-    ctx.drawImage(video, 0, 0, w, h);
-    source = overlay;
-  }
+  if (syncFrames) ctx.drawImage(video, 0, 0, w, h);
 
   let face = null;
   try {
-    face = tracker.detect(source, now);
+    face = tracker.detect(video, now);
     failures = 0;
   } catch (err) {
     console.error(err);
@@ -174,8 +174,11 @@ function processFrame() {
     showNotice(hasFace ? "" : "Kein Gesicht im Bild.");
   }
 
+  // Rechenzeit pro Bild (gleitender Mittelwert), zur Diagnose in der Statuszeile.
+  workMs += (performance.now() - now - workMs) * 0.1;
+
   if (countFrame(now)) {
-    showStatus(`${fps} FPS · ${tracker.delegate} · ${video.videoWidth}×${video.videoHeight}`);
+    showStatus(`${fps} FPS · ${Math.round(workMs)} ms · ${tracker.delegate} · ${video.videoWidth}×${video.videoHeight}`);
   }
 }
 
